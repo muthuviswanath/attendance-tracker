@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+
+{% block title %}Courses - Attendance Tracker{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="fas fa-sitemap me-2"></i>Course Hierarchy
+                </h5>
+                <a href="{{ url_for('add_course') }}" class="btn btn-primary">
+                    <i class="fas fa-plus me-1"></i>Add New Course
+                </a>
+            </div>
+            <div class="card-body">
+                {% if hierarchy %}
+                    <div class="row">
+                        {% for main_course, sub_courses in hierarchy %}
+                            <div class="col-lg-6 mb-4">
+                                <div class="card border-primary">
+                                    <div class="card-header bg-primary text-white">
+                                        <h6 class="mb-0">
+                                            <i class="fas fa-graduation-cap me-2"></i>
+                                            {{ main_course.course_code }} - {{ main_course.course_name }}
+                                        </h6>
+                                        <small>Instructor: {{ main_course.instructor }}</small>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="row mb-2">
+                                            <div class="col-sm-6">
+                                                <small class="text-muted">Schedule:</small><br>
+                                                {{ main_course.schedule or 'Not set' }}
+                                            </div>
+                                            <div class="col-sm-6">
+                                                <small class="text-muted">Min Attendance:</small><br>
+                                                {{ main_course.min_attendance_percentage }}%
+                                            </div>
+                                        </div>
+                                        
+                                        {% if sub_courses %}
+                                            <hr>
+                                            <h6 class="text-muted mb-2">
+                                                <i class="fas fa-sitemap me-1"></i>Sub-Courses
+                                            </h6>
+                                            <div class="row">
+                                                {% for sub_course in sub_courses %}
+                                                    <div class="col-12 mb-2">
+                                                        <div class="card border-secondary">
+                                                            <div class="card-body py-2">
+                                                                <div class="d-flex justify-content-between align-items-center">
+                                                                    <div>
+                                                                        <strong>{{ sub_course.course_code }}</strong><br>
+                                                                        <small class="text-muted">{{ sub_course.course_name }}</small>
+                                                                    </div>
+                                                                    <div class="btn-group btn-group-sm">
+                                                                        <button class="btn btn-outline-primary btn-sm" title="Edit Sub-Course">
+                                                                            <i class="fas fa-edit"></i>
+                                                                        </button>
+                                                                        <button class="btn btn-outline-danger btn-sm" title="Delete Sub-Course">
+                                                                            <i class="fas fa-trash"></i>
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                {% endfor %}
+                                            </div>
+                                        {% else %}
+                                            <div class="text-center py-2">
+                                                <small class="text-muted">No sub-courses yet</small>
+                                            </div>
+                                        {% endif %}
+                                        
+                                        <div class="mt-3 d-flex justify-content-between">
+                                            <button class="btn btn-outline-success btn-sm" title="Add Sub-Course">
+                                                <i class="fas fa-plus me-1"></i>Add Sub-Course
+                                            </button>
+                                            <div class="btn-group btn-group-sm">
+                                                <button class="btn btn-outline-primary" title="Edit Main Course">
+                                                    <i class="fas fa-edit"></i>
+                                                </button>
+                                                <button class="btn btn-outline-danger" title="Delete Main Course">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+                
+                {% if standalone_courses %}
+                    <div class="mt-4">
+                        <h6 class="text-muted mb-3">
+                            <i class="fas fa-book me-1"></i>Standalone Courses
+                        </h6>
+                        <div class="row">
+                            {% for course in standalone_courses %}
+                                <div class="col-lg-4 col-md-6 mb-3">
+                                    <div class="card border-secondary">
+                                        <div class="card-body">
+                                            <h6 class="card-title">{{ course.course_code }}</h6>
+                                            <p class="card-text">
+                                                <strong>{{ course.course_name }}</strong><br>
+                                                <small class="text-muted">{{ course.instructor }}</small>
+                                            </p>
+                                            <div class="d-flex justify-content-between">
+                                                <small class="text-muted">{{ course.min_attendance_percentage }}% min</small>
+                                                <div class="btn-group btn-group-sm">
+                                                    <button class="btn btn-outline-primary btn-sm" title="Edit">
+                                                        <i class="fas fa-edit"></i>
+                                                    </button>
+                                                    <button class="btn btn-outline-danger btn-sm" title="Delete">
+                                                        <i class="fas fa-trash"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                {% endif %}
+                
+                {% if not hierarchy and not standalone_courses %}
+                    <div class="text-center py-5">
+                        <i class="fas fa-book fa-3x text-muted mb-3"></i>
+                        <h4>No Courses Found</h4>
+                        <p class="text-muted">Start by creating your first course.</p>
+                        <a href="{{ url_for('add_course') }}" class="btn btn-primary">
+                            <i class="fas fa-plus me-1"></i>Add First Course
+                        </a>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

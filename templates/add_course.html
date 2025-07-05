@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+
+{% block title %}Add Course - Attendance Tracker{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-book me-2"></i>Add New Course
+                </h5>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="course_code" class="form-label">Course Code</label>
+                            <input type="text" class="form-control" id="course_code" name="course_code" required>
+                            <div class="form-text">e.g., CS101, MATH201</div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="course_name" class="form-label">Course Name</label>
+                            <input type="text" class="form-control" id="course_name" name="course_name" required>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="instructor" class="form-label">Instructor</label>
+                        <input type="text" class="form-control" id="instructor" name="instructor" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="schedule" class="form-label">Schedule</label>
+                        <input type="text" class="form-control" id="schedule" name="schedule" 
+                               placeholder="e.g., Mon/Wed/Fri 10:00-11:30 AM">
+                        <div class="form-text">Optional: Enter the class schedule</div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="parent_course_id" class="form-label">Parent Course</label>
+                            <select class="form-select" id="parent_course_id" name="parent_course_id">
+                                <option value="">None (Main Course)</option>
+                                {% for course in main_courses %}
+                                    <option value="{{ course.id }}" 
+                                            {% if request.args.get('parent_id') == course.id|string %}selected{% endif %}>
+                                        {{ course.course_code }} - {{ course.course_name }}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                            <div class="form-text">
+                                <i class="fas fa-info-circle me-1"></i>
+                                Select a parent course to create a sub-course.
+                            </div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="min_attendance_percentage" class="form-label">Minimum Attendance %</label>
+                            <input type="number" class="form-control" id="min_attendance_percentage" 
+                                   name="min_attendance_percentage" value="75" min="0" max="100" step="0.1">
+                            <div class="form-text">Required attendance percentage for this course</div>
+                        </div>
+                    </div>
+                    
+                    <div class="d-flex justify-content-between">
+                        <a href="{{ url_for('courses') }}" class="btn btn-secondary">
+                            <i class="fas fa-arrow-left me-1"></i>Back to Courses
+                        </a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save me-1"></i>Add Course
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

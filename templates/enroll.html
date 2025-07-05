@@ -1,0 +1,137 @@
+{% exten            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="fas fa-user-plus me-2"></i>Manual Student Enrollment
+                </h5>
+                <div class="btn-group" role="group">
+                    <a href="{{ url_for('enrollment_manager') }}" class="btn btn-primary btn-sm">
+                        <i class="fas fa-cogs me-1"></i>Advanced Manager
+                    </a>
+                    <a href="{{ url_for('bulk_upload') }}" class="btn btn-success btn-sm">
+                        <i class="fas fa-upload me-1"></i>Bulk Upload
+                    </a>
+                </div>
+            </div>ase.html" %}
+
+{% block title %}Enrollment - Attendance Tracker{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-user-plus me-2"></i>Enroll Student
+                </h5>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    <div class="mb-3">
+                        <label for="student_id" class="form-label">Select Student</label>
+                        <select class="form-select" id="student_id" name="student_id" required>
+                            <option value="">Choose a student...</option>
+                            {% for student in students %}
+                            <option value="{{ student.id }}">{{ student.student_id }} - {{ student.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="course_id" class="form-label">Select Course</label>
+                        <select class="form-select" id="course_id" name="course_id" required>
+                            <option value="">Choose a course...</option>
+                            {% for course in courses %}
+                            <option value="{{ course.id }}">{{ course.course_code }} - {{ course.course_name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-user-plus me-1"></i>Enroll Student
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-list me-2"></i>Current Enrollments
+                </h5>
+            </div>
+            <div class="card-body">
+                {% if enrollments %}
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>Student</th>
+                                <th>Course</th>
+                                <th>Enrolled</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for enrollment in enrollments %}
+                            <tr>
+                                <td>{{ enrollment.student_name }}</td>
+                                <td>{{ enrollment.course_code }}</td>
+                                <td>{{ enrollment.enrolled_at.split(' ')[0] }}</td>
+                                <td>
+                                    <button type="button" class="btn btn-sm btn-outline-danger" 
+                                            onclick="confirmUnenroll('{{ enrollment.student_name }}', '{{ enrollment.course_code }}', '{{ url_for('unenroll_student', enrollment_id=enrollment.id) }}')"
+                                            title="Remove Enrollment">
+                                        <i class="fas fa-user-minus"></i> Unenroll
+                                    </button>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center py-3">
+                    <i class="fas fa-users fa-3x text-muted mb-2"></i>
+                    <p class="text-muted">No enrollments yet</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if not students %}
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="alert alert-warning">
+            <i class="fas fa-exclamation-triangle me-2"></i>
+            <strong>No students found!</strong> You need to add students before enrolling them in courses.
+            <a href="{{ url_for('add_student') }}" class="alert-link">Add students here</a>.
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% if not courses %}
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="alert alert-warning">
+            <i class="fas fa-exclamation-triangle me-2"></i>
+            <strong>No courses found!</strong> You need to add courses before enrolling students.
+            <a href="{{ url_for('add_course') }}" class="alert-link">Add courses here</a>.
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+function confirmUnenroll(studentName, courseCode, unenrollUrl) {
+    if (confirm(`Are you sure you want to unenroll ${studentName} from ${courseCode}?\n\nThis will also remove all attendance records for this student in this course.`)) {
+        window.location.href = unenrollUrl;
+    }
+}
+</script>
+{% endblock %}

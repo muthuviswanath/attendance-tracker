@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+
+{% block title %}Reports - Attendance Tracker{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-chart-bar me-2"></i>Attendance Reports
+                </h5>
+            </div>
+            <div class="card-body">
+                <!-- Report Generation Form -->
+                <form method="GET" action="{{ url_for('attendance_report') }}" class="row g-3 mb-4">
+                    <div class="col-md-4">
+                        <label for="course_id" class="form-label">Sub-Course <span class="text-danger">*</span></label>
+                        <select class="form-select" id="course_id" name="course_id" required>
+                            <option value="">Select Sub-Course</option>
+                            {% for main_course, sub_course_list in hierarchy %}
+                            <optgroup label="{{ main_course.course_code }} - {{ main_course.course_name }}">
+                                {% for sub_course in sub_course_list %}
+                                <option value="{{ sub_course.id }}">
+                                    {{ sub_course.course_code }} - {{ sub_course.course_name }}
+                                </option>
+                                {% endfor %}
+                            </optgroup>
+                            {% endfor %}
+                        </select>
+                        <small class="text-muted">Reports are only available for sub-courses where students are enrolled</small>
+                    </div>
+                    
+                    <div class="col-md-3">
+                        <label for="batch_id" class="form-label">Filter by Batch (Optional)</label>
+                        <select class="form-select" id="batch_id" name="batch_id">
+                            <option value="">All Batches</option>
+                            {% for batch in batches %}
+                            <option value="{{ batch.id }}">{{ batch.batch_name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <div class="col-md-3">
+                        <label class="form-label">&nbsp;</label>
+                        <div>
+                            <button type="submit" class="btn btn-primary w-100">
+                                <i class="fas fa-chart-line me-1"></i>Generate Report
+                            </button>
+                        </div>
+                    </div>
+                </form>
+                
+                <hr>
+                
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="card h-100 border-primary">
+                            <div class="card-body text-center">
+                                <i class="fas fa-calendar-check fa-4x text-primary mb-3"></i>
+                                <h5 class="card-title">Student Attendance Report</h5>
+                                <p class="card-text">View detailed attendance records for students enrolled in sub-courses</p>
+                                <small class="text-muted">Select a sub-course above to generate the report</small>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <div class="card h-100 border-success">
+                            <div class="card-body text-center">
+                                <i class="fas fa-download fa-4x text-success mb-3"></i>
+                                <h5 class="card-title">Export Data</h5>
+                                <p class="card-text">Export attendance data to CSV or Excel</p>
+                                <button class="btn btn-success" onclick="exportData()" disabled>
+                                    <i class="fas fa-download me-1"></i>Export CSV
+                                </button>
+                                <br><small class="text-muted">Generate a report first to enable export</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body text-center">
+                <h2 class="text-primary" id="totalStudents">0</h2>
+                <p class="text-muted">Total Students</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body text-center">
+                <h2 class="text-success" id="totalCourses">0</h2>
+                <p class="text-muted">Total Courses</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body text-center">
+                <h2 class="text-info" id="todayAttendance">0</h2>
+                <p class="text-muted">Today's Attendance</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Load statistics
+fetch('/api/stats')
+.then(response => response.json())
+.then(data => {
+    document.getElementById('totalStudents').textContent = data.total_students || 0;
+    document.getElementById('totalCourses').textContent = data.total_courses || 0;
+    document.getElementById('todayAttendance').textContent = data.today_attendance || 0;
+})
+.catch(error => {
+    console.error('Error loading stats:', error);
+});
+
+function exportData() {
+    alert('Generate a report first to enable export functionality.');
+}
+</script>
+{% endblock %}

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block title %}Add Batch - Attendance Tracker{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-layer-group me-2"></i>Add New Batch
+                </h5>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="batch_name" class="form-label">Batch Name</label>
+                            <input type="text" class="form-control" id="batch_name" name="batch_name" 
+                                   placeholder="e.g., CS-2024A, Engineering-Batch1" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="batch_year" class="form-label">Batch Year</label>
+                            <input type="number" class="form-control" id="batch_year" name="batch_year" 
+                                   value="{{ current_year }}" min="2000" max="2030" required>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="description" class="form-label">Description</label>
+                        <textarea class="form-control" id="description" name="description" rows="3" 
+                                  placeholder="Optional description for this batch"></textarea>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="min_attendance_percentage" class="form-label">Minimum Attendance Percentage</label>
+                        <input type="number" class="form-control" id="min_attendance_percentage" 
+                               name="min_attendance_percentage" value="75" min="0" max="100" step="0.1" required>
+                        <div class="form-text">
+                            <i class="fas fa-info-circle me-1"></i>
+                            This will be the default attendance requirement for all students in this batch.
+                        </div>
+                    </div>
+                    
+                    <div class="d-flex justify-content-between">
+                        <a href="{{ url_for('batches') }}" class="btn btn-secondary">
+                            <i class="fas fa-arrow-left me-1"></i>Back to Batches
+                        </a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save me-1"></i>Add Batch
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

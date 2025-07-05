@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+
+{% block title %}Edit User - Attendance Tracker{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-user-edit me-2"></i>Edit User
+                </h5>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="username" class="form-label">Username <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="username" name="username" 
+                                   value="{{ user.username }}" required>
+                            <div class="form-text">Unique username for system login</div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="password" class="form-label">New Password</label>
+                            <input type="password" class="form-control" id="password" name="password" minlength="6">
+                            <div class="form-text">Leave blank to keep current password</div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="full_name" class="form-label">Full Name <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="full_name" name="full_name" 
+                               value="{{ user.full_name }}" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="email" class="form-label">Email</label>
+                        <input type="email" class="form-control" id="email" name="email" 
+                               value="{{ user.email or '' }}">
+                        <div class="form-text">Optional: Email address for notifications</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="role" class="form-label">Role <span class="text-danger">*</span></label>
+                        <select class="form-select" id="role" name="role" required>
+                            <option value="admin" {% if user.role == 'admin' %}selected{% endif %}>
+                                Admin - Full system access
+                            </option>
+                            <option value="attendance_taker" {% if user.role == 'attendance_taker' %}selected{% endif %}>
+                                Attendance Taker - Limited to attendance and reports
+                            </option>
+                        </select>
+                        <div class="form-text">
+                            <i class="fas fa-info-circle me-1"></i>
+                            Admin: Full access to all features<br>
+                            Attendance Taker: Can only mark attendance and view reports
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="is_active" name="is_active" 
+                                   {% if user.is_active %}checked{% endif %}>
+                            <label class="form-check-label" for="is_active">
+                                Account Active
+                            </label>
+                            <div class="form-text">Uncheck to disable user account</div>
+                        </div>
+                    </div>
+                    
+                    {% if user.id == session.user_id %}
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle me-1"></i>
+                            You are editing your own account. Be careful not to lock yourself out!
+                        </div>
+                    {% endif %}
+                    
+                    <div class="d-flex justify-content-between">
+                        <a href="{{ url_for('users') }}" class="btn btn-secondary">
+                            <i class="fas fa-arrow-left me-1"></i>Back to Users
+                        </a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save me-1"></i>Update User
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

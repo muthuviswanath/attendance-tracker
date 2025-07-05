@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+
+{% block title %}Attendance Report{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <div>
+                    <h5 class="mb-0">
+                        <i class="fas fa-chart-line me-2"></i>Attendance Report
+                    </h5>
+                    {% if selected_course %}
+                    <small class="text-muted">{{ selected_course.course_code }} - {{ selected_course.course_name }}</small>
+                    {% endif %}
+                </div>
+                <div>
+                    <a href="{{ url_for('reports') }}" class="btn btn-outline-secondary">
+                        <i class="fas fa-arrow-left me-1"></i>Back to Reports
+                    </a>
+                    <button class="btn btn-success" onclick="exportData()">
+                        <i class="fas fa-download me-1"></i>Export CSV
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                {% if attendance_data %}
+                <!-- Summary Statistics -->
+                <div class="row mb-4">
+                    <div class="col-md-3">
+                        <div class="card bg-primary text-white">
+                            <div class="card-body text-center">
+                                <h3>{{ attendance_data|length }}</h3>
+                                <p class="mb-0">Enrolled Students</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card bg-success text-white">
+                            <div class="card-body text-center">
+                                {% set present_count = attendance_data|selectattr('status', 'equalto', 'Present')|list|length %}
+                                <h3>{{ present_count }}</h3>
+                                <p class="mb-0">Present Records</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card bg-warning text-white">
+                            <div class="card-body text-center">
+                                {% set absent_count = attendance_data|selectattr('status', 'equalto', 'Absent')|list|length %}
+                                <h3>{{ absent_count }}</h3>
+                                <p class="mb-0">Absent Records</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card bg-danger text-white">
+                            <div class="card-body text-center">
+                                {% set late_count = attendance_data|selectattr('status', 'equalto', 'Late')|list|length %}
+                                <h3>{{ late_count }}</h3>
+                                <p class="mb-0">Late Records</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Attendance Table -->
+                <div class="table-responsive">
+                    <table class="table table-hover" id="attendanceTable">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>Student ID</th>
+                                <th>Student Name</th>
+                                <th>Course</th>
+                                <th>Batch</th>
+                                <th>Date</th>
+                                <th>Time</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for data in attendance_data %}
+                            <tr>
+                                <td><strong>{{ data.student_id }}</strong></td>
+                                <td>{{ data.name }}</td>
+                                <td>
+                                    <span class="badge bg-primary">{{ data.course_code }}</span>
+                                    <br><small class="text-muted">{{ data.course_name }}</small>
+                                </td>
+                                <td>
+                                    {% if data.batch_name %}
+                                        <span class="badge bg-info">{{ data.batch_name }}</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">No Batch</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ data.date }}</td>
+                                <td>{{ data.time }}</td>
+                                <td>
+                                    {% if data.status == 'Present' %}
+                                        <span class="badge bg-success">
+                                            <i class="fas fa-check me-1"></i>Present
+                                        </span>
+                                    {% elif data.status == 'Late' %}
+                                        <span class="badge bg-warning">
+                                            <i class="fas fa-clock me-1"></i>Late
+                                        </span>
+                                    {% else %}
+                                        <span class="badge bg-danger">
+                                            <i class="fas fa-times me-1"></i>Absent
+                                        </span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center py-5">
+                    <i class="fas fa-users-slash fa-5x text-muted mb-3"></i>
+                    <h4 class="text-muted">No Students Found</h4>
+                    <p class="text-muted">No students are enrolled in this sub-course{% if batch_id %} from the selected batch{% endif %}.</p>
+                    <div>
+                        <a href="{{ url_for('enrollment_manager') }}" class="btn btn-primary me-2">
+                            <i class="fas fa-user-plus me-1"></i>Manage Enrollments
+                        </a>
+                        <a href="{{ url_for('reports') }}" class="btn btn-outline-secondary">
+                            <i class="fas fa-arrow-left me-1"></i>Back to Reports
+                        </a>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function exportData() {
+    const table = document.getElementById('attendanceTable');
+    const rows = table.querySelectorAll('tr');
+    let csv = '';
+    
+    // Add course info as header
+    {% if selected_course %}
+    csv += `"Attendance Report - {{ selected_course.course_code }} - {{ selected_course.course_name }}"\n`;
+    {% else %}
+    csv += `"Attendance Report - All Courses"\n`;
+    {% endif %}
+    csv += `"Generated on: ${new Date().toLocaleString()}"\n`;
+    csv += `"Total Students: {{ attendance_data|length }}"\n\n`;
+    
+    // Add table headers and data
+    rows.forEach((row, index) => {
+        const cols = row.querySelectorAll('td, th');
+        const rowData = [];
+        cols.forEach(col => {
+            // Clean the text content
+            const text = col.textContent.trim().replace(/"/g, '""');
+            rowData.push(`"${text}"`);
+        });
+        csv += rowData.join(',') + '\n';
+    });
+    
+    // Download the CSV
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `attendance_report_{% if selected_course %}{{ selected_course.course_code }}{% else %}all_courses{% endif %}_${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+}
+</script>
+{% endblock %}

@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block title %}System Logs - Attendance Tracker{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <div>
+                    <h5 class="mb-0">
+                        <i class="fas fa-file-alt me-2"></i>System Logs
+                    </h5>
+                    <small class="text-muted">Recent system activity and error logs</small>
+                </div>
+                <a href="{{ url_for('settings') }}" class="btn btn-secondary btn-sm">
+                    <i class="fas fa-arrow-left me-1"></i>Back to Settings
+                </a>
+            </div>
+            <div class="card-body">
+                {% if logs %}
+                <div class="bg-dark text-light p-3 rounded" style="max-height: 600px; overflow-y: auto;">
+                    <pre class="mb-0 text-light">{% for log in logs %}{{ log }}{% endfor %}</pre>
+                </div>
+                {% else %}
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i>
+                    No system logs found. Logs will appear here when the system generates them.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0">
+                    <i class="fas fa-chart-line me-2"></i>System Activity
+                </h6>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <h4 class="text-primary">{{ system_stats.active_users or 0 }}</h4>
+                            <small class="text-muted">Active Users</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <h4 class="text-success">{{ system_stats.recent_attendance or 0 }}</h4>
+                            <small class="text-muted">Recent Attendance Records</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <h4 class="text-warning">{{ system_stats.login_attempts or 0 }}</h4>
+                            <small class="text-muted">Login Attempts (24h)</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <h4 class="text-info">{{ system_stats.system_errors or 0 }}</h4>
+                            <small class="text-muted">System Errors (24h)</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

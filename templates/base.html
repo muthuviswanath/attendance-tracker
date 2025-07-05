@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Attendance Tracker{% endblock %}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding-top: 68px; /* Account for sticky navbar - reduced height */
+            display: flex;
+            flex-direction: column;
+        }
+        
+        /* Sticky Navigation Bar */
+        .navbar {
+            background: rgba(255, 255, 255, 0.95) !important;
+            backdrop-filter: blur(15px);
+            box-shadow: 0 2px 20px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s ease;
+            min-height: 60px;
+            padding: 0.5rem 0;
+        }
+        
+        .navbar .container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .navbar-brand {
+            font-weight: bold;
+            font-size: 1.1rem;
+            color: #333 !important;
+            flex-shrink: 0;
+        }
+        
+        .navbar-brand i {
+            font-size: 1rem;
+            margin-right: 0.4rem;
+        }
+        
+        .navbar-nav .nav-link {
+            color: #333 !important;
+            font-weight: 500;
+            font-size: 0.85rem;
+            padding: 0.4rem 0.6rem !important;
+            border-radius: 6px;
+            transition: all 0.3s ease;
+        }
+        
+        .navbar-nav .nav-link i {
+            font-size: 0.75rem;
+            margin-right: 0.3rem;
+        }
+        
+        .dropdown-item i {
+            font-size: 0.7rem;
+            margin-right: 0.4rem;
+            width: 1rem;
+            text-align: center;
+        }
+        
+        /* User dropdown specific styling */
+        .navbar-nav .nav-item.dropdown:last-child .nav-link {
+            font-size: 0.8rem;
+            padding: 0.4rem 0.5rem !important;
+            min-width: 140px;
+            justify-content: flex-start;
+        }
+        
+        .navbar-nav .nav-item.dropdown:last-child .nav-link i {
+            margin-right: 0.4rem;
+        }
+        
+        /* Dropdown toggle arrow */
+        .navbar-nav .dropdown-toggle::after {
+            font-size: 0.7rem;
+            margin-left: 0.3rem;
+        }
+        
+        .navbar-nav .nav-link:hover {
+            background: rgba(102, 126, 234, 0.1);
+            color: #667eea !important;
+            transform: translateY(-1px);
+        }
+        
+        /* Dropdown Improvements */
+        .dropdown-menu {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(15px);
+            border: none;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(31, 38, 135, 0.37);
+            z-index: 1050 !important;
+            padding: 0.5rem 0;
+            margin-top: 8px;
+        }
+        
+        .dropdown-item {
+            color: #333;
+            font-size: 0.85rem;
+            padding: 0.4rem 1.2rem;
+            font-weight: 500;
+            border-radius: 6px;
+            margin: 0 0.4rem;
+            transition: all 0.3s ease;
+            white-space: nowrap;
+        }
+        
+        .dropdown-item:hover {
+            background: rgba(102, 126, 234, 0.1);
+            color: #667eea;
+            transform: translateX(5px);
+        }
+        
+        .dropdown-divider {
+            margin: 0.5rem 0;
+            border-color: rgba(102, 126, 234, 0.2);
+        }
+        
+        /* Card Styling */
+        .card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border: none;
+            border-radius: 15px;
+            box-shadow: 0 8px 32px rgba(31, 38, 135, 0.37);
+        }
+        
+        /* Button Styling */
+        .btn-primary {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            border: none;
+            border-radius: 25px;
+            font-weight: 600;
+            padding: 0.5rem 1.5rem;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-primary:hover {
+            background: linear-gradient(45deg, #764ba2, #667eea);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }
+        
+        /* Alert Styling */
+        .alert {
+            border-radius: 10px;
+            border: none;
+        }
+        
+        /* Main Content */
+        .main-content {
+            flex: 1;
+            padding-bottom: 2rem;
+        }
+        
+        /* Footer Styling */
+        .footer {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-top: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            padding: 2rem 0;
+            margin-top: auto;
+        }
+        
+        .footer h5 {
+            color: #fff;
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }
+        
+        .footer p, .footer small {
+            color: rgba(255, 255, 255, 0.8);
+        }
+        
+        .footer .social-links a {
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 1.5rem;
+            margin-right: 1rem;
+            transition: all 0.3s ease;
+        }
+        
+        .footer .social-links a:hover {
+            color: #fff;
+            transform: translateY(-2px);
+        }
+        
+        /* Responsive */
+        @media (max-width: 991px) {
+            .navbar-nav .nav-link {
+                padding: 0.6rem 1rem !important;
+                font-size: 0.95rem;
+            }
+            
+            .dropdown-menu {
+                margin-top: 0;
+                border-radius: 0;
+                box-shadow: none;
+                background: rgba(255, 255, 255, 0.9);
+            }
+            
+            .dropdown-item {
+                font-size: 0.9rem;
+                padding: 0.5rem 1rem;
+            }
+            
+            .navbar-toggler {
+                padding: 0.25rem 0.5rem;
+                font-size: 1rem;
+            }
+        }
+        
+        /* Medium screen adjustments */
+        @media (min-width: 992px) and (max-width: 1199px) {
+            .navbar-nav .nav-link {
+                font-size: 0.8rem;
+                padding: 0.4rem 0.5rem !important;
+            }
+            
+            .navbar-nav .nav-item.dropdown:last-child .nav-link {
+                min-width: 130px;
+                max-width: 180px;
+            }
+            
+            .navbar-brand {
+                font-size: 1rem;
+            }
+        }
+        
+        /* Desktop specific improvements */
+        @media (min-width: 992px) {
+            .navbar-nav {
+                align-items: center;
+                gap: 0.2rem;
+            }
+            
+            .navbar-nav .nav-item {
+                margin: 0;
+            }
+            
+            .navbar-nav .nav-link {
+                display: flex;
+                align-items: center;
+                height: 2.2rem;
+                max-width: none;
+                overflow: visible;
+            }
+            
+            .navbar-collapse {
+                justify-content: flex-end;
+            }
+            
+            .navbar .container {
+                max-width: 1400px;
+            }
+            
+            /* Ensure user dropdown has enough space */
+            .navbar-nav .nav-item:last-child .nav-link {
+                min-width: 160px;
+                max-width: 220px;
+                text-overflow: ellipsis;
+                overflow: hidden;
+                white-space: nowrap;
+            }
+            
+            /* Compact other navigation items */
+            .navbar-nav .nav-item:not(:last-child) .nav-link {
+                white-space: nowrap;
+            }
+        }
+        
+        /* Fix z-index issues */
+        .btn-group .dropdown-menu {
+            z-index: 1060 !important;
+        }
+        
+        .modal {
+            z-index: 1070 !important;
+        }
+        
+        .modal-backdrop {
+            z-index: 1040 !important;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-light fixed-top">
+        <div class="container">
+            <a class="navbar-brand" href="{{ url_for('dashboard') }}">
+                {% if institution_logo %}
+                    <img src="{{ url_for('static', filename='logos/' + institution_logo) }}" 
+                         alt="{{ institution_name }}" style="height: 30px;" class="me-2">
+                {% else %}
+                    <i class="fas fa-user-check me-2"></i>
+                {% endif %}
+                {{ institution_name }}
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('dashboard') }}">
+                            <i class="fas fa-home me-1"></i>Home
+                        </a>
+                    </li>
+                    
+                    {% if session.role == 'admin' %}
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="studentsDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-users me-1"></i>Students
+                        </a>
+                        <ul class="dropdown-menu" aria-labelledby="studentsDropdown">
+                            <li><a class="dropdown-item" href="{{ url_for('students') }}">
+                                <i class="fas fa-list me-1"></i>View Students
+                            </a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('add_student') }}">
+                                <i class="fas fa-plus me-1"></i>Add Student
+                            </a></li>
+                        </ul>
+                    </li>
+                    
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="coursesDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-book me-1"></i>Courses
+                        </a>
+                        <ul class="dropdown-menu" aria-labelledby="coursesDropdown">
+                            <li><a class="dropdown-item" href="{{ url_for('courses') }}">
+                                <i class="fas fa-list me-1"></i>View Courses
+                            </a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('add_course') }}">
+                                <i class="fas fa-plus me-1"></i>Add Course
+                            </a></li>
+                        </ul>
+                    </li>
+                    
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="batchesDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-layer-group me-1"></i>Batches
+                        </a>
+                        <ul class="dropdown-menu" aria-labelledby="batchesDropdown">
+                            <li><a class="dropdown-item" href="{{ url_for('batches') }}">
+                                <i class="fas fa-list me-1"></i>View Batches
+                            </a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('add_batch') }}">
+                                <i class="fas fa-plus me-1"></i>Add Batch
+                            </a></li>
+                        </ul>
+                    </li>
+                    
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="enrollmentDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-user-plus me-1"></i>Enrollment
+                        </a>
+                        <ul class="dropdown-menu" aria-labelledby="enrollmentDropdown">
+                            <li><a class="dropdown-item" href="{{ url_for('enroll') }}">
+                                <i class="fas fa-user-plus me-1"></i>Manual Enrollment
+                            </a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('enrollment_manager') }}">
+                                <i class="fas fa-cogs me-1"></i>Advanced Manager
+                            </a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="{{ url_for('bulk_upload') }}">
+                                <i class="fas fa-upload me-1"></i>Bulk Upload
+                            </a></li>
+                        </ul>
+                    </li>
+                    
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="userMgmtDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-users-cog me-1"></i>User Management
+                        </a>
+                        <ul class="dropdown-menu" aria-labelledby="userMgmtDropdown">
+                            <li><a class="dropdown-item" href="{{ url_for('users') }}">
+                                <i class="fas fa-list me-1"></i>View Users
+                            </a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('add_user') }}">
+                                <i class="fas fa-plus me-1"></i>Add User
+                            </a></li>
+                        </ul>
+                    </li>
+                    {% endif %}
+                    
+                    {% if session.role in ['admin', 'attendance_taker'] %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('mark_attendance') }}">
+                            <i class="fas fa-camera me-1"></i>Mark Attendance
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('reports') }}">
+                            <i class="fas fa-chart-bar me-1"></i>Reports
+                        </a>
+                    </li>
+                    {% endif %}
+                    
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="userDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-user-circle me-1"></i>{{ session.full_name or session.username }}
+                        </a>
+                        <ul class="dropdown-menu" aria-labelledby="userDropdown">
+                            {% if session.role == 'admin' %}
+                            <li><a class="dropdown-item" href="{{ url_for('settings') }}">
+                                <i class="fas fa-cog me-1"></i>Settings
+                            </a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            {% endif %}
+                            <li><a class="dropdown-item" href="{{ url_for('logout') }}">
+                                <i class="fas fa-sign-out-alt me-1"></i>Logout
+                            </a></li>
+                        </ul>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="main-content">
+        <div class="container mt-4">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ 'danger' if category == 'error' else 'success' }} alert-dismissible fade show" role="alert">
+                            {{ message }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+
+            {% block content %}{% endblock %}
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="row">
+                <div class="col-md-4">
+                    <h5>
+                        {% if institution_logo %}
+                            <img src="{{ url_for('static', filename='logos/' + institution_logo) }}" 
+                                 alt="{{ institution_name }}" style="height: 25px;" class="me-2">
+                        {% else %}
+                            <i class="fas fa-user-check me-2"></i>
+                        {% endif %}
+                        {{ institution_name }}
+                    </h5>
+                    <p>A comprehensive attendance management system with facial recognition capabilities and advanced reporting features.</p>
+                    <div class="social-links">
+                        <a href="#" title="Facebook"><i class="fab fa-facebook"></i></a>
+                        <a href="#" title="Twitter"><i class="fab fa-twitter"></i></a>
+                        <a href="#" title="LinkedIn"><i class="fab fa-linkedin"></i></a>
+                        <a href="#" title="GitHub"><i class="fab fa-github"></i></a>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <h5><i class="fas fa-link me-2"></i>Quick Links</h5>
+                    <ul class="list-unstyled">
+                        <li><a href="{{ url_for('dashboard') }}" class="text-light text-decoration-none">Dashboard</a></li>
+                        {% if session.role in ['admin', 'attendance_taker'] %}
+                        <li><a href="{{ url_for('mark_attendance') }}" class="text-light text-decoration-none">Mark Attendance</a></li>
+                        <li><a href="{{ url_for('reports') }}" class="text-light text-decoration-none">Reports</a></li>
+                        {% endif %}
+                        {% if session.role == 'admin' %}
+                        <li><a href="{{ url_for('students') }}" class="text-light text-decoration-none">Students</a></li>
+                        <li><a href="{{ url_for('courses') }}" class="text-light text-decoration-none">Courses</a></li>
+                        {% endif %}
+                    </ul>
+                </div>
+                <div class="col-md-4">
+                    <h5><i class="fas fa-info-circle me-2"></i>System Info</h5>
+                    <p><strong>Version:</strong> 1.0.0</p>
+                    <p><strong>Build Date:</strong> July 2025</p>
+                    <p><strong>Framework:</strong> Flask + Bootstrap 5</p>
+                    <p><strong>Features:</strong> Face Recognition, Role-based Access, Advanced Reports</p>
+                </div>
+            </div>
+            <hr class="my-4" style="border-color: rgba(255, 255, 255, 0.2);">
+            <div class="row">
+                <div class="col-md-6">
+                    <small>&copy; {{ current_year }} {{ institution_name }}. All rights reserved.</small>
+                </div>
+                <div class="col-md-6 text-end">
+                    <small>Developed with <i class="fas fa-heart text-danger"></i> using Flask & Bootstrap by Muthu Viswanathan</small>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Session management
+        let sessionTimeout = 5 * 60 * 1000; // 5 minutes in milliseconds
+        let warningTime = 4 * 60 * 1000; // 4 minutes - show warning 1 minute before timeout
+        let sessionTimer;
+        let warningTimer;
+        let warningShown = false;
+        
+        function resetSessionTimer() {
+            clearTimeout(sessionTimer);
+            clearTimeout(warningTimer);
+            warningShown = false;
+            
+            // Hide any existing warning
+            const existingWarning = document.getElementById('sessionWarning');
+            if (existingWarning) {
+                existingWarning.remove();
+            }
+            
+            // Set warning timer (4 minutes)
+            warningTimer = setTimeout(showSessionWarning, warningTime);
+            
+            // Set logout timer (5 minutes)
+            sessionTimer = setTimeout(forceLogout, sessionTimeout);
+        }
+        
+        function showSessionWarning() {
+            if (warningShown) return;
+            warningShown = true;
+            
+            const warningDiv = document.createElement('div');
+            warningDiv.id = 'sessionWarning';
+            warningDiv.className = 'alert alert-warning alert-dismissible fade show position-fixed';
+            warningDiv.style.cssText = 'top: 80px; right: 20px; z-index: 1060; max-width: 350px;';
+            warningDiv.innerHTML = `
+                <div class="d-flex align-items-center">
+                    <i class="fas fa-clock me-2"></i>
+                    <div>
+                        <strong>Session Expiring!</strong><br>
+                        Your session will expire in 1 minute due to inactivity.
+                    </div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            
+            document.body.appendChild(warningDiv);
+            
+            // Auto-hide warning after 30 seconds if user doesn't interact
+            setTimeout(() => {
+                if (document.getElementById('sessionWarning')) {
+                    document.getElementById('sessionWarning').remove();
+                }
+            }, 30000);
+        }
+        
+        function forceLogout() {
+            alert('Your session has expired due to inactivity. You will be redirected to the login page.');
+            window.location.href = '/logout';
+        }
+        
+        function updateActivity() {
+            // Send activity update to server
+            fetch('/api/update-activity', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                credentials: 'same-origin'
+            }).catch(console.error);
+            
+            resetSessionTimer();
+        }
+        
+        // Improve dropdown behavior
+        document.addEventListener('DOMContentLoaded', function() {
+            // Only start session timer if user is logged in (check if navbar exists)
+            if (document.querySelector('.navbar')) {
+                resetSessionTimer();
+                
+                // Track user activity
+                const activities = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart', 'click'];
+                activities.forEach(activity => {
+                    document.addEventListener(activity, function() {
+                        updateActivity();
+                    }, { passive: true, capture: true });
+                });
+            }
+            
+            // Auto-close mobile menu when clicking a link
+            const navLinks = document.querySelectorAll('.navbar-nav .nav-link');
+            const navbarToggler = document.querySelector('.navbar-toggler');
+            const navbarCollapse = document.querySelector('.navbar-collapse');
+            
+            navLinks.forEach(link => {
+                link.addEventListener('click', function() {
+                    if (navbarCollapse && navbarCollapse.classList.contains('show')) {
+                        if (navbarToggler) navbarToggler.click();
+                    }
+                });
+            });
+            
+            // Add smooth scrolling to top when clicking brand
+            const brand = document.querySelector('.navbar-brand');
+            if (brand) {
+                brand.addEventListener('click', function(e) {
+                    if (this.getAttribute('href') === '#') {
+                        e.preventDefault();
+                        window.scrollTo({
+                            top: 0,
+                            behavior: 'smooth'
+                        });
+                    }
+                });
+            }
+            
+            // Initialize Bootstrap tooltips if any
+            var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+            var tooltipList = tooltipTriggerList.map(function(tooltipTriggerEl) {
+                return new bootstrap.Tooltip(tooltipTriggerEl);
+            });
+        });
+    </script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

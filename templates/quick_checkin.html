@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+
+{% block title %}Quick Check-in - {{ course.course_name }}{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header text-center">
+                <h5 class="mb-0">
+                    <i class="fas fa-qrcode me-2"></i>Quick Check-in
+                </h5>
+                <p class="mb-0 text-muted">{{ course.course_code }} - {{ course.course_name }}</p>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('quick_checkin_submit') }}" id="quickCheckinForm" class="text-center">
+                    <input type="hidden" name="course_id" value="{{ course.id }}">
+                    <div class="mb-4">
+                        <i class="fas fa-id-card fa-4x text-primary mb-3"></i>
+                        <p class="text-muted">Enter your Student ID to mark attendance</p>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <input type="text" class="form-control form-control-lg text-center" 
+                               name="student_id" id="student_id" placeholder="Enter Student ID" 
+                               required autofocus style="font-size: 1.5rem;">
+                    </div>
+                    
+                    <button type="submit" class="btn btn-success btn-lg">
+                        <i class="fas fa-check me-2"></i>Mark Present
+                    </button>
+                    
+                    <div id="statusMessage" class="mt-3"></div>
+                </form>
+                
+                <div class="mt-4 text-center">
+                    <div class="btn-group" role="group">
+                        <a href="{{ url_for('webcam_attendance', course_id=course.id) }}" class="btn btn-outline-primary">
+                            <i class="fas fa-camera me-1"></i>Face Recognition
+                        </a>
+                        <a href="{{ url_for('manual_attendance', course_id=course.id) }}" class="btn btn-outline-secondary">
+                            <i class="fas fa-clipboard-check me-1"></i>Manual Entry
+                        </a>
+                        <a href="{{ url_for('bulk_attendance', course_id=course.id) }}" class="btn btn-outline-info">
+                            <i class="fas fa-list me-1"></i>Bulk Entry
+                        </a>
+                    </div>
+                </div>
+                
+                <div class="mt-3 text-center">
+                    <a href="{{ url_for('mark_attendance') }}" class="btn btn-link">
+                        <i class="fas fa-arrow-left me-1"></i>Back to Course Selection
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0">
+                    <i class="fas fa-info-circle me-2"></i>Instructions
+                </h6>
+            </div>
+            <div class="card-body">
+                <ul class="mb-0">
+                    <li>Enter your Student ID exactly as registered</li>
+                    <li>Make sure you are enrolled in this course</li>
+                    <li>You can only mark attendance once per day</li>
+                    <li>Contact your instructor if you have issues</li>
+                </ul>
+            </div>
+        </div>
+        
+        <div class="card mt-3">
+            <div class="card-header">
+                <h6 class="mb-0">
+                    <i class="fas fa-clock me-2"></i>Current Time
+                </h6>
+            </div>
+            <div class="card-body text-center">
+                <div id="currentTime" class="h5 text-primary"></div>
+                <div id="currentDate" class="text-muted"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Auto-focus on student ID input
+document.getElementById('student_id').focus();
+
+// Update current time
+function updateTime() {
+    const now = new Date();
+    const timeOptions = { 
+        hour: '2-digit', 
+        minute: '2-digit', 
+        second: '2-digit',
+        hour12: true
+    };
+    const dateOptions = { 
+        weekday: 'long', 
+        year: 'numeric', 
+        month: 'long', 
+        day: 'numeric' 
+    };
+    
+    document.getElementById('currentTime').textContent = now.toLocaleTimeString(undefined, timeOptions);
+    document.getElementById('currentDate').textContent = now.toLocaleDateString(undefined, dateOptions);
+}
+
+// Update time every second
+updateTime();
+setInterval(updateTime, 1000);
+
+// Clear input on page load for security
+window.addEventListener('load', () => {
+    document.getElementById('student_id').value = '';
+});
+
+// Handle form submission
+document.getElementById('quickCheckinForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const formData = new FormData(e.target);
+    const statusMessage = document.getElementById('statusMessage');
+    const submitButton = document.querySelector('button[type="submit"]');
+    
+    // Show loading state
+    statusMessage.innerHTML = '<p class="text-info"><i class="fas fa-spinner fa-spin me-1"></i>Marking attendance...</p>';
+    submitButton.disabled = true;
+    
+    try {
+        const response = await fetch('/quick_checkin_submit', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            statusMessage.innerHTML = `<p class="text-success"><i class="fas fa-check me-1"></i>${data.message}</p>`;
+            document.getElementById('student_id').value = '';
+            // Clear success message after 3 seconds
+            setTimeout(() => {
+                statusMessage.innerHTML = '';
+            }, 3000);
+        } else {
+            statusMessage.innerHTML = `<p class="text-danger"><i class="fas fa-exclamation-triangle me-1"></i>${data.message}</p>`;
+        }
+    } catch (error) {
+        statusMessage.innerHTML = `<p class="text-danger"><i class="fas fa-exclamation-triangle me-1"></i>Network error: ${error.message}</p>`;
+    } finally {
+        submitButton.disabled = false;
+    }
+});
+</script>
+{% endblock %}

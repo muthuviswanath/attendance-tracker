@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block title %}Edit Batch - Attendance Tracker{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-edit me-2"></i>Edit Batch
+                </h5>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="batch_name" class="form-label">Batch Name <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="batch_name" name="batch_name" 
+                                   value="{{ batch.batch_name }}" required>
+                            <div class="form-text">e.g., 2024-CSE-A, Engineering-2023</div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="batch_year" class="form-label">Batch Year <span class="text-danger">*</span></label>
+                            <input type="number" class="form-control" id="batch_year" name="batch_year" 
+                                   value="{{ batch.batch_year }}" min="2020" max="2030" required>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="description" class="form-label">Description</label>
+                        <textarea class="form-control" id="description" name="description" rows="3">{{ batch.description or '' }}</textarea>
+                        <div class="form-text">Optional: Brief description of the batch</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="min_attendance_percentage" class="form-label">Minimum Attendance Percentage</label>
+                        <input type="number" class="form-control" id="min_attendance_percentage" 
+                               name="min_attendance_percentage" value="{{ batch.min_attendance_percentage }}" 
+                               min="0" max="100" step="0.1">
+                        <div class="form-text">Default attendance requirement for this batch</div>
+                    </div>
+                    
+                    <div class="d-flex justify-content-between">
+                        <a href="{{ url_for('batches') }}" class="btn btn-secondary">
+                            <i class="fas fa-arrow-left me-1"></i>Back to Batches
+                        </a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save me-1"></i>Update Batch
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

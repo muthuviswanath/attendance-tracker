@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+
+{% block title %}Students - Attendance Tracker{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="fas fa-users me-2"></i>Students
+                </h5>
+                <a href="{{ url_for('add_student') }}" class="btn btn-primary">
+                    <i class="fas fa-plus me-1"></i>Add New Student
+                </a>
+            </div>
+            <div class="card-body">
+                {% if students %}
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>Photo</th>
+                                <th>Student ID</th>
+                                <th>Name</th>
+                                <th>Email</th>
+                                <th>Batch</th>
+                                <th>Face Registered</th>
+                                <th>Registered On</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for student in students %}
+                            <tr>
+                                <td>
+                                    {% if student.photo_path %}
+                                        <img src="{{ url_for('static', filename=student.photo_path) }}" 
+                                             alt="Student Photo" class="rounded-circle" width="50" height="50">
+                                    {% else %}
+                                        <div class="bg-secondary rounded-circle d-flex align-items-center justify-content-center" 
+                                             style="width: 50px; height: 50px;">
+                                            <i class="fas fa-user text-white"></i>
+                                        </div>
+                                    {% endif %}
+                                </td>
+                                <td><strong>{{ student.student_id }}</strong></td>
+                                <td>{{ student.name }}</td>
+                                <td>{{ student.email }}</td>
+                                <td>
+                                    {% if student.batch_name %}
+                                        <span class="badge bg-info">{{ student.batch_name }}</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">No Batch</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if student.face_encoding %}
+                                        <span class="badge bg-success">
+                                            <i class="fas fa-check me-1"></i>Yes
+                                        </span>
+                                    {% else %}
+                                        <span class="badge bg-danger">
+                                            <i class="fas fa-times me-1"></i>No
+                                        </span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ student.created_at.split(' ')[0] if student.created_at else 'N/A' }}</td>
+                                <td>
+                                    <div class="btn-group" role="group">
+                                        <a href="{{ url_for('edit_student', student_id=student.id) }}" 
+                                           class="btn btn-sm btn-outline-primary" title="Edit Student">
+                                            <i class="fas fa-edit"></i>
+                                        </a>
+                                        <button type="button" class="btn btn-sm btn-outline-danger" 
+                                                onclick="confirmDelete('{{ student.name }}', '{{ url_for('delete_student', student_id=student.id) }}')"
+                                                title="Delete Student">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center py-5">
+                    <i class="fas fa-users fa-5x text-muted mb-3"></i>
+                    <h4 class="text-muted">No Students Found</h4>
+                    <p class="text-muted">Start by adding your first student to the system.</p>
+                    <a href="{{ url_for('add_student') }}" class="btn btn-primary">
+                        <i class="fas fa-plus me-1"></i>Add First Student
+                    </a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div class="modal fade" id="deleteModal" tabindex="-1" aria-labelledby="deleteModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="deleteModalLabel">Confirm Delete</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to delete student <strong id="studentName"></strong>?</p>
+                <p class="text-danger"><i class="fas fa-exclamation-triangle me-1"></i>This action cannot be undone and will also remove all attendance records for this student.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <a href="#" id="confirmDeleteBtn" class="btn btn-danger">
+                    <i class="fas fa-trash me-1"></i>Delete Student
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function confirmDelete(studentName, deleteUrl) {
+    document.getElementById('studentName').textContent = studentName;
+    document.getElementById('confirmDeleteBtn').href = deleteUrl;
+    
+    var deleteModal = new bootstrap.Modal(document.getElementById('deleteModal'));
+    deleteModal.show();
+}
+</script>
+{% endblock %}

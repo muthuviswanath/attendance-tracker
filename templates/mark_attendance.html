@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+
+{% block title %}Mark Attendance - Attendance Tracker{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-camera me-2"></i>Mark Attendance
+                </h5>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    <div class="mb-4">
+                        <label for="course_id" class="form-label">Select Course (Sub-course)</label>
+                        <select class="form-select" id="course_id" name="course_id" required>
+                            <option value="">Choose a sub-course...</option>
+                            {% for main_course, sub_courses in hierarchy %}
+                                <optgroup label="{{ main_course.course_code }} - {{ main_course.course_name }} (Main Course)">
+                                    {% for sub_course in sub_courses %}
+                                        <option value="{{ sub_course.id }}">{{ sub_course.course_code }} - {{ sub_course.course_name }}</option>
+                                    {% endfor %}
+                                    {% if not sub_courses %}
+                                        <option disabled style="color: #6c757d;">No sub-courses available</option>
+                                    {% endif %}
+                                </optgroup>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">
+                            <i class="fas fa-info-circle me-1"></i>
+                            Attendance can only be marked for sub-courses. Main courses are shown for organization only.
+                        </div>
+                    </div>
+                    
+                    <div class="text-center">
+                        <button type="submit" class="btn btn-primary btn-lg mb-3">
+                            <i class="fas fa-camera me-2"></i>Start Face Recognition Attendance
+                        </button>
+                        
+                        <!-- Backup Methods -->
+                        <div class="row g-2 mt-2">
+                            <div class="col-md-4">
+                                <button type="button" class="btn btn-outline-success w-100" onclick="goToManualAttendance()">
+                                    <i class="fas fa-clipboard-check me-1"></i><br>Manual Select
+                                </button>
+                            </div>
+                            <div class="col-md-4">
+                                <button type="button" class="btn btn-outline-info w-100" onclick="goToQuickCheckin()">
+                                    <i class="fas fa-qrcode me-1"></i><br>Quick Check-in
+                                </button>
+                            </div>
+                            <div class="col-md-4">
+                                <button type="button" class="btn btn-outline-warning w-100" onclick="goToBulkAttendance()">
+                                    <i class="fas fa-list me-1"></i><br>Bulk Entry
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <small class="text-muted d-block mt-3">
+                            <i class="fas fa-info-circle me-1"></i>
+                            Use backup methods if face recognition is not working properly
+                        </small>
+                    </div>
+                </form>
+                
+                <div class="mt-4">
+                    <div class="alert alert-info">
+                        <h6><i class="fas fa-info-circle me-2"></i>Instructions:</h6>
+                        <ol class="mb-2">
+                            <li>Select the <strong>sub-course</strong> for which you want to mark attendance</li>
+                            <li><strong>Primary Method:</strong> Use "Face Recognition Attendance" for automatic detection</li>
+                            <li><strong>Backup Methods:</strong> Use alternatives if face recognition fails:</li>
+                            <ul>
+                                <li><strong>Manual Select:</strong> Instructor selects students from a list</li>
+                                <li><strong>Quick Check-in:</strong> Students enter their ID to mark attendance</li>
+                                <li><strong>Bulk Entry:</strong> Instructor marks attendance for all students at once</li>
+                            </ul>
+                        </ol>
+                        <div class="alert alert-warning alert-sm mb-0">
+                            <i class="fas fa-exclamation-triangle me-1"></i>
+                            <strong>Important:</strong> Attendance can only be marked for sub-courses, not main courses. 
+                            Main courses automatically aggregate attendance from their sub-courses.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if not hierarchy %}
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="alert alert-warning">
+            <i class="fas fa-exclamation-triangle me-2"></i>
+            <strong>No courses found!</strong> You need to add courses before marking attendance.
+            <a href="{{ url_for('add_course') }}" class="alert-link">Add courses here</a>.
+        </div>
+    </div>
+</div>
+{% else %}
+{# Check if any main course has sub-courses #}
+{% set has_sub_courses = false %}
+{% for main_course, sub_courses in hierarchy %}
+    {% if sub_courses %}
+        {% set has_sub_courses = true %}
+    {% endif %}
+{% endfor %}
+
+{% if not has_sub_courses %}
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="alert alert-info">
+            <i class="fas fa-info-circle me-2"></i>
+            <strong>No sub-courses available!</strong> Attendance can only be marked for sub-courses. 
+            Please add sub-courses to your existing main courses or 
+            <a href="{{ url_for('add_course') }}" class="alert-link">create new courses here</a>.
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+function goToManualAttendance() {
+    const courseSelect = document.getElementById('course_id');
+    if (courseSelect.value) {
+        window.location.href = `/manual_attendance/${courseSelect.value}`;
+    } else {
+        alert('Please select a course first.');
+    }
+}
+
+function goToQuickCheckin() {
+    const courseSelect = document.getElementById('course_id');
+    if (courseSelect.value) {
+        window.location.href = `/quick_checkin/${courseSelect.value}`;
+    } else {
+        alert('Please select a course first.');
+    }
+}
+
+function goToBulkAttendance() {
+    const courseSelect = document.getElementById('course_id');
+    if (courseSelect.value) {
+        window.location.href = `/bulk_attendance/${courseSelect.value}`;
+    } else {
+        alert('Please select a course first.');
+    }
+}
+</script>
+{% endblock %}

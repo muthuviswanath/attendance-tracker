@@ -1,0 +1,192 @@
+{% extends "base.html" %}
+
+{% block title %}Manual Attendance - {{ course.course_name }}{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="fas fa-clipboard-check me-2"></i>Manual Attendance - {{ course.course_code }}
+                </h5>
+                <div class="btn-group" role="group">
+                    <a href="{{ url_for('webcam_attendance', course_id=course.id) }}" class="btn btn-primary btn-sm">
+                        <i class="fas fa-camera me-1"></i>Face Recognition
+                    </a>
+                    <a href="{{ url_for('quick_checkin', course_id=course.id) }}" class="btn btn-success btn-sm">
+                        <i class="fas fa-qrcode me-1"></i>Quick Check-in
+                    </a>
+                    <a href="{{ url_for('bulk_attendance', course_id=course.id) }}" class="btn btn-info btn-sm">
+                        <i class="fas fa-list me-1"></i>Bulk Entry
+                    </a>
+                </div>
+            </div>
+            <div class="card-body">
+                <p class="text-muted mb-3">Select students to mark as present. Use this when face recognition is not working properly.</p>
+                
+                {% if students %}
+                <form id="manualAttendanceForm">
+                    <div class="row">
+                        {% for student in students %}
+                        <div class="col-md-6 mb-2">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" value="{{ student.id }}" 
+                                       id="student_{{ student.id }}" name="student_ids">
+                                <label class="form-check-label d-flex align-items-center" for="student_{{ student.id }}">
+                                    {% if student.photo_path %}
+                                        <img src="{{ url_for('static', filename=student.photo_path) }}" 
+                                             alt="Photo" class="rounded-circle me-2" width="30" height="30">
+                                    {% else %}
+                                        <div class="bg-secondary rounded-circle d-flex align-items-center justify-content-center me-2" 
+                                             style="width: 30px; height: 30px;">
+                                            <i class="fas fa-user text-white small"></i>
+                                        </div>
+                                    {% endif %}
+                                    <div>
+                                        <strong>{{ student.name }}</strong><br>
+                                        <small class="text-muted">{{ student.student_id }}</small>
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    
+                    <div class="mt-3">
+                        <button type="submit" class="btn btn-success">
+                            <i class="fas fa-check me-1"></i>Mark Selected as Present
+                        </button>
+                        <button type="button" class="btn btn-secondary" onclick="selectAll()">
+                            <i class="fas fa-check-square me-1"></i>Select All
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary" onclick="clearAll()">
+                            <i class="fas fa-square me-1"></i>Clear All
+                        </button>
+                        <a href="{{ url_for('mark_attendance') }}" class="btn btn-outline-primary">
+                            <i class="fas fa-arrow-left me-1"></i>Back
+                        </a>
+                    </div>
+                </form>
+                {% else %}
+                <div class="text-center py-4">
+                    <i class="fas fa-users fa-3x text-muted mb-3"></i>
+                    <h5 class="text-muted">No Enrolled Students</h5>
+                    <p class="text-muted">No students are enrolled in this course.</p>
+                    <a href="{{ url_for('enroll') }}" class="btn btn-primary">
+                        <i class="fas fa-user-plus me-1"></i>Enroll Students
+                    </a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0">
+                    <i class="fas fa-calendar-day me-2"></i>Today's Attendance
+                </h6>
+            </div>
+            <div class="card-body">
+                {% if today_attendance %}
+                    {% for attendance in today_attendance %}
+                    <div class="d-flex justify-content-between align-items-center mb-2 p-2 border rounded">
+                        <div>
+                            <strong>{{ attendance.name }}</strong><br>
+                            <small class="text-muted">{{ attendance.student_id }}</small>
+                        </div>
+                        <div class="text-end">
+                            <span class="badge bg-success">Present</span><br>
+                            <small class="text-muted">{{ attendance.time }}</small>
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <p class="text-muted">No attendance marked yet today.</p>
+                {% endif %}
+            </div>
+        </div>
+        
+        <!-- Status Display -->
+        <div class="card mt-3">
+            <div class="card-body">
+                <div id="statusDisplay" class="text-center">
+                    <p class="text-muted">Select students and click "Mark as Present"</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const form = document.getElementById('manualAttendanceForm');
+const statusDisplay = document.getElementById('statusDisplay');
+
+if (form) {
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const formData = new FormData(form);
+        const studentIds = formData.getAll('student_ids').map(id => parseInt(id));
+        
+        if (studentIds.length === 0) {
+            statusDisplay.innerHTML = '<p class="text-warning">Please select at least one student.</p>';
+            return;
+        }
+        
+        statusDisplay.innerHTML = '<p class="text-info"><i class="fas fa-spinner fa-spin me-1"></i>Marking attendance...</p>';
+        
+        try {
+            const response = await fetch('/manual_attendance_submit', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: new URLSearchParams({
+                    course_id: {{ course.id }},
+                    students: studentIds.join(','),
+                    date: new Date().toISOString().split('T')[0],
+                    time: new Date().toTimeString().split(' ')[0]
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                let message = '';
+                if (data.marked_students.length > 0) {
+                    message += `<p class="text-success"><i class="fas fa-check me-1"></i>Marked present: ${data.marked_students.join(', ')}</p>`;
+                }
+                if (data.already_marked.length > 0) {
+                    message += `<p class="text-warning"><i class="fas fa-info-circle me-1"></i>Already marked: ${data.already_marked.join(', ')}</p>`;
+                }
+                statusDisplay.innerHTML = message;
+                
+                // Refresh page after 2 seconds to show updated attendance
+                setTimeout(() => {
+                    window.location.reload();
+                }, 2000);
+            } else {
+                statusDisplay.innerHTML = `<p class="text-danger"><i class="fas fa-exclamation-triangle me-1"></i>Error: ${data.error}</p>`;
+            }
+        } catch (error) {
+            statusDisplay.innerHTML = `<p class="text-danger"><i class="fas fa-exclamation-triangle me-1"></i>Network error: ${error.message}</p>`;
+        }
+    });
+}
+
+function selectAll() {
+    const checkboxes = document.querySelectorAll('input[name="student_ids"]');
+    checkboxes.forEach(checkbox => checkbox.checked = true);
+}
+
+function clearAll() {
+    const checkboxes = document.querySelectorAll('input[name="student_ids"]');
+    checkboxes.forEach(checkbox => checkbox.checked = false);
+}
+</script>
+{% endblock %}

@@ -1,0 +1,258 @@
+{% extends "base.html" %}
+
+{% block title %}Webcam Attendance{% if course %} - {{ course.course_name }}{% endif %}{% endblock %}
+
+{% block content %}
+{% if not course %}
+<!-- Course Selection -->
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-camera me-2"></i>Select Course for Webcam Attendance
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <strong>Note:</strong> Attendance can only be marked for sub-courses. Please select a sub-course from the list below.
+                </div>
+                
+                <form method="GET" action="{{ url_for('webcam_attendance') }}">
+                    <div class="mb-3">
+                        <label for="course_id" class="form-label">Select Sub-Course</label>
+                        <select name="course_id" id="course_id" class="form-select" required>
+                            <option value="">Choose a sub-course...</option>
+                            {% for main_course, sub_courses in hierarchy %}
+                            <optgroup label="{{ main_course.course_code }} - {{ main_course.course_name }}">
+                                {% for sub_course in sub_courses %}
+                                <option value="{{ sub_course.id }}">
+                                    {{ sub_course.course_code }} - {{ sub_course.course_name }}
+                                </option>
+                                {% endfor %}
+                                {% if not sub_courses %}
+                                <option disabled>No sub-courses available</option>
+                                {% endif %}
+                            </optgroup>
+                            {% endfor %}
+                            {% if not hierarchy %}
+                            <option disabled>No courses available</option>
+                            {% endif %}
+                        </select>
+                    </div>
+                    
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-camera me-1"></i>Start Webcam Attendance
+                        </button>
+                        <a href="{{ url_for('mark_attendance') }}" class="btn btn-secondary">
+                            <i class="fas fa-arrow-left me-1"></i>Back to Attendance
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% else %}
+<!-- Webcam Attendance Interface -->
+<div class="row">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-camera me-2"></i>Attendance for {{ course.course_code }} - {{ course.course_name }}
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="text-center mb-3">
+                    <video id="video" width="640" height="480" autoplay muted></video>
+                    <canvas id="canvas" width="640" height="480" style="display: none;"></canvas>
+                </div>
+                
+                <div class="d-flex justify-content-center gap-2">
+                    <button id="startBtn" class="btn btn-success">
+                        <i class="fas fa-play me-1"></i>Start Camera
+                    </button>
+                    <button id="stopBtn" class="btn btn-danger" disabled>
+                        <i class="fas fa-stop me-1"></i>Stop Camera
+                    </button>
+                    <a href="{{ url_for('webcam_attendance') }}" class="btn btn-outline-secondary">
+                        <i class="fas fa-exchange-alt me-1"></i>Change Course
+                    </a>
+                    <a href="{{ url_for('mark_attendance') }}" class="btn btn-secondary">
+                        <i class="fas fa-arrow-left me-1"></i>Back
+                    </a>
+                </div>
+                
+                <div id="status" class="mt-3 text-center">
+                    <p class="text-muted">Click "Start Camera" to begin attendance marking</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0">
+                    <i class="fas fa-list me-2"></i>Attendance Status
+                </h6>
+            </div>
+            <div class="card-body">
+                <div id="recognitionStatus" class="mb-3">
+                    <span class="badge bg-warning">Waiting for camera...</span>
+                </div>
+                
+                <div id="attendanceList">
+                    <p class="text-muted small">Students marked present will appear here</p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card mt-3">
+            <div class="card-header">
+                <h6 class="mb-0">
+                    <i class="fas fa-info-circle me-2"></i>Tips
+                </h6>
+            </div>
+            <div class="card-body">
+                <ul class="small mb-0">
+                    <li>Ensure good lighting</li>
+                    <li>Look directly at the camera</li>
+                    <li>Stay still for 2-3 seconds</li>
+                    <li>One person at a time works best</li>
+                </ul>
+            </div>
+        </div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if course %}
+<script>
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const startBtn = document.getElementById('startBtn');
+const stopBtn = document.getElementById('stopBtn');
+const status = document.getElementById('status');
+const recognitionStatus = document.getElementById('recognitionStatus');
+const attendanceList = document.getElementById('attendanceList');
+
+let stream = null;
+let recognitionInterval = null;
+let markedStudents = new Set();
+
+const courseId = {{ course.id }};
+
+startBtn.addEventListener('click', startCamera);
+stopBtn.addEventListener('click', stopCamera);
+
+async function startCamera() {
+    try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        video.srcObject = stream;
+        
+        startBtn.disabled = true;
+        stopBtn.disabled = false;
+        
+        status.innerHTML = '<p class="text-success"><i class="fas fa-camera me-1"></i>Camera is active - Looking for faces...</p>';
+        recognitionStatus.innerHTML = '<span class="badge bg-success">Camera Active</span>';
+        
+        // Start face recognition every 2 seconds
+        recognitionInterval = setInterval(captureAndRecognize, 2000);
+        
+    } catch (err) {
+        console.error('Error accessing camera:', err);
+        status.innerHTML = '<p class="text-danger"><i class="fas fa-exclamation-triangle me-1"></i>Error accessing camera. Please check permissions.</p>';
+    }
+}
+
+function stopCamera() {
+    if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+        stream = null;
+    }
+    
+    if (recognitionInterval) {
+        clearInterval(recognitionInterval);
+        recognitionInterval = null;
+    }
+    
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+    
+    status.innerHTML = '<p class="text-muted">Camera stopped</p>';
+    recognitionStatus.innerHTML = '<span class="badge bg-secondary">Camera Stopped</span>';
+}
+
+function captureAndRecognize() {
+    if (!stream) return;
+    
+    // Draw video frame to canvas
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    
+    // Convert canvas to base64
+    const imageData = canvas.toDataURL('image/jpeg', 0.8);
+    
+    // Send to server for recognition
+    fetch('/process_frame', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            course_id: courseId,
+            frame: imageData
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            updateRecognitionStatus(data);
+        } else {
+            console.error('Recognition error:', data.error);
+            if (data.error.includes('sub-courses')) {
+                status.innerHTML = '<p class="text-danger"><i class="fas fa-exclamation-triangle me-1"></i>Error: ' + data.error + '</p>';
+            }
+        }
+    })
+    .catch(error => {
+        console.error('Network error:', error);
+    });
+}
+
+function updateRecognitionStatus(data) {
+    const { recognized_students, marked_students } = data;
+    
+    if (recognized_students.length > 0) {
+        recognitionStatus.innerHTML = `<span class="badge bg-success">Recognized: ${recognized_students.join(', ')}</span>`;
+        
+        // Add newly marked students to the list
+        marked_students.forEach(studentName => {
+            if (!markedStudents.has(studentName)) {
+                markedStudents.add(studentName);
+                const studentElement = document.createElement('div');
+                studentElement.className = 'alert alert-success alert-sm py-2 mb-2';
+                studentElement.innerHTML = `<i class="fas fa-check me-1"></i>${studentName}`;
+                attendanceList.appendChild(studentElement);
+            }
+        });
+        
+        if (marked_students.length > 0) {
+            status.innerHTML = `<p class="text-success"><i class="fas fa-check me-1"></i>Marked attendance for: ${marked_students.join(', ')}</p>`;
+        }
+    } else {
+        recognitionStatus.innerHTML = '<span class="badge bg-warning">Looking for faces...</span>';
+    }
+}
+
+// Clean up on page unload
+window.addEventListener('beforeunload', () => {
+    stopCamera();
+});
+</script>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,648 @@
+{% extends "base.html" %}
+
+{% block title %}System Settings - Attendance Tracker{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-cogs me-2"></i>System Configuration
+                </h5>
+                <small class="text-muted">Configure system settings, manage users, and customize the platform to fit your institutional needs.</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <!-- General Settings -->
+    <div class="col-lg-6 mb-4">
+        <div class="card h-100">
+            <div class="card-header">
+                <h6 class="mb-0">
+                    <i class="fas fa-university me-2"></i>General Settings
+                </h6>
+                <small class="text-muted">Institution branding and basic configuration</small>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('update_general_settings') }}" enctype="multipart/form-data">
+                    <div class="mb-3">
+                        <label for="institution_name" class="form-label">Institution Name</label>
+                        <input type="text" class="form-control" id="institution_name" name="institution_name" 
+                               value="{{ general_settings.institution_name or 'Your Institution' }}" required>
+                        <div class="form-text">This will be displayed on all pages and reports</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="institution_logo" class="form-label">Institution Logo</label>
+                        <input type="file" class="form-control" id="institution_logo" name="institution_logo" accept="image/*">
+                        <div class="form-text">Upload a logo (JPG, PNG, GIF). Recommended size: 200x200px</div>
+                        {% if general_settings.institution_logo %}
+                        <div class="mt-2">
+                            <img src="{{ url_for('static', filename='logos/' + general_settings.institution_logo) }}" 
+                                 alt="Current Logo" class="img-thumbnail" style="max-height: 80px;">
+                            <small class="text-muted ms-2">Current logo</small>
+                        </div>
+                        {% endif %}
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="academic_year" class="form-label">Academic Year</label>
+                            <input type="text" class="form-control" id="academic_year" name="academic_year" 
+                                   value="{{ general_settings.academic_year or '2024-2025' }}" placeholder="2024-2025">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="current_semester" class="form-label">Current Semester</label>
+                            <select class="form-select" id="current_semester" name="current_semester">
+                                <option value="Spring" {% if general_settings.current_semester == 'Spring' %}selected{% endif %}>Spring</option>
+                                <option value="Summer" {% if general_settings.current_semester == 'Summer' %}selected{% endif %}>Summer</option>
+                                <option value="Fall" {% if general_settings.current_semester == 'Fall' %}selected{% endif %}>Fall</option>
+                                <option value="Winter" {% if general_settings.current_semester == 'Winter' %}selected{% endif %}>Winter</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="default_attendance_threshold" class="form-label">Default Attendance Threshold (%)</label>
+                        <input type="number" class="form-control" id="default_attendance_threshold" 
+                               name="default_attendance_threshold" min="0" max="100" step="0.1"
+                               value="{{ general_settings.default_attendance_threshold or 75.0 }}">
+                        <div class="form-text">Default minimum attendance percentage for new courses</div>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save me-1"></i>Save General Settings
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Attendance Configuration -->
+    <div class="col-lg-6 mb-4">
+        <div class="card h-100">
+            <div class="card-header">
+                <h6 class="mb-0">
+                    <i class="fas fa-calendar-check me-2"></i>Attendance Configuration
+                </h6>
+                <small class="text-muted">Configure how attendance is calculated and managed</small>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('update_attendance_settings') }}">
+                    <div class="mb-3">
+                        <label for="grace_period_minutes" class="form-label">Grace Period (Minutes)</label>
+                        <input type="number" class="form-control" id="grace_period_minutes" 
+                               name="grace_period_minutes" min="0" max="60"
+                               value="{{ attendance_settings.grace_period_minutes or 10 }}">
+                        <div class="form-text">Allow students to mark attendance this many minutes after class starts</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="attendance_calculation_method" class="form-label">Calculation Method</label>
+                        <select class="form-select" id="attendance_calculation_method" name="attendance_calculation_method">
+                            <option value="percentage" {% if attendance_settings.calculation_method == 'percentage' %}selected{% endif %}>Percentage Based</option>
+                            <option value="sessions" {% if attendance_settings.calculation_method == 'sessions' %}selected{% endif %}>Session Count</option>
+                            <option value="weighted" {% if attendance_settings.calculation_method == 'weighted' %}selected{% endif %}>Weighted Average</option>
+                        </select>
+                        
+                        <!-- Detailed explanations -->
+                        <div class="mt-2">
+                            <div class="accordion" id="calculationMethodAccordion">
+                                <div class="accordion-item">
+                                    <h2 class="accordion-header">
+                                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#methodDetails">
+                                            <small>Click to see calculation details</small>
+                                        </button>
+                                    </h2>
+                                    <div id="methodDetails" class="accordion-collapse collapse" data-bs-parent="#calculationMethodAccordion">
+                                        <div class="accordion-body">
+                                            <div class="calculation-method-details">
+                                                <div class="mb-3">
+                                                    <strong>Percentage Based:</strong>
+                                                    <p class="small mb-1">Attendance % = (Present Days / Total Days) × 100</p>
+                                                    <p class="small text-muted">Example: 18 present out of 20 total days = 90% attendance</p>
+                                                </div>
+                                                
+                                                <div class="mb-3">
+                                                    <strong>Session Count:</strong>
+                                                    <p class="small mb-1">Shows actual numbers: "18 out of 20 classes attended"</p>
+                                                    <p class="small text-muted">Example: Student attended 18 sessions out of 20 total sessions</p>
+                                                </div>
+                                                
+                                                <div class="mb-0">
+                                                    <strong>Weighted Average:</strong>
+                                                    <p class="small mb-1">Different class types have different weights</p>
+                                                    <p class="small text-muted">Example: Lectures (1x), Labs (2x), Tutorials (1.5x)</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="auto_aggregate_main_courses" 
+                                   name="auto_aggregate_main_courses" {% if attendance_settings.auto_aggregate_main_courses %}checked{% endif %}>
+                            <label class="form-check-label" for="auto_aggregate_main_courses">
+                                Auto-aggregate main course attendance from sub-courses
+                            </label>
+                            <div class="form-text">When enabled, main course attendance is automatically calculated from all sub-course attendance</div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="low_attendance_threshold" class="form-label">Low Attendance Warning (%)</label>
+                        <input type="number" class="form-control" id="low_attendance_threshold" 
+                               name="low_attendance_threshold" min="0" max="100" step="0.1"
+                               value="{{ attendance_settings.low_attendance_threshold or 50.0 }}">
+                        <div class="form-text">Send warnings when attendance falls below this percentage</div>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save me-1"></i>Save Attendance Settings
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Batch Management Settings -->
+    <div class="col-lg-6 mb-4">
+        <div class="card h-100">
+            <div class="card-header">
+                <h6 class="mb-0">
+                    <i class="fas fa-users me-2"></i>Batch Management
+                </h6>
+                <small class="text-muted">Configure batch naming and management settings</small>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('update_batch_settings') }}">
+                    <div class="mb-3">
+                        <label for="batch_naming_convention" class="form-label">Batch Naming Convention</label>
+                        <select class="form-select" id="batch_naming_convention" name="batch_naming_convention">
+                            <option value="year_only" {% if batch_settings.naming_convention == 'year_only' %}selected{% endif %}>Year Only (2024)</option>
+                            <option value="year_semester" {% if batch_settings.naming_convention == 'year_semester' %}selected{% endif %}>Year-Semester (2024-Fall)</option>
+                            <option value="custom" {% if batch_settings.naming_convention == 'custom' %}selected{% endif %}>Custom</option>
+                        </select>
+                        
+                        <div class="mt-2">
+                            <div class="naming-convention-help">
+                                <div class="alert alert-info">
+                                    <h6>Naming Convention Examples:</h6>
+                                    <ul class="mb-0">
+                                        <li><strong>Year Only:</strong> Batch-2024, Batch-2025</li>
+                                        <li><strong>Year-Semester:</strong> 2024-Fall, 2024-Spring, 2025-Fall</li>
+                                        <li><strong>Custom:</strong> You can create batches with any name like "CS-2024", "Engineering-Batch-1", etc.</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3" id="custom_naming_pattern" style="display: none;">
+                        <label for="custom_pattern" class="form-label">Custom Naming Pattern</label>
+                        <input type="text" class="form-control" id="custom_pattern" name="custom_pattern" 
+                               placeholder="e.g., {Department}-{Year}, {Course}-Batch-{Number}">
+                        <div class="form-text">
+                            Available placeholders: {Year}, {Semester}, {Department}, {Course}, {Number}
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="auto_create_batches" 
+                                   name="auto_create_batches" {% if batch_settings.auto_create_batches %}checked{% endif %}>
+                            <label class="form-check-label" for="auto_create_batches">
+                                Auto-create batches for new academic years
+                            </label>
+                            <div class="form-text">Automatically create new batches when a new academic year starts</div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="batch_promotion_threshold" class="form-label">Promotion Threshold (%)</label>
+                        <input type="number" class="form-control" id="batch_promotion_threshold" 
+                               name="batch_promotion_threshold" min="0" max="100" step="0.1"
+                               value="{{ batch_settings.promotion_threshold or 75.0 }}">
+                        <div class="form-text">Minimum attendance required for batch promotion</div>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save me-1"></i>Save Batch Settings
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- System Maintenance -->
+    <div class="col-lg-6 mb-4">
+        <div class="card h-100">
+            <div class="card-header">
+                <h6 class="mb-0">
+                    <i class="fas fa-tools me-2"></i>System Maintenance
+                </h6>
+                <small class="text-muted">Database management and system operations</small>
+            </div>
+            <div class="card-body">
+                <div class="mb-4">
+                    <h6>Database Management</h6>
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <a href="{{ url_for('backup_database') }}" class="btn btn-success w-100">
+                                <i class="fas fa-download me-1"></i>Backup Database
+                            </a>
+                        </div>
+                        <div class="col-6">
+                            <button type="button" class="btn btn-warning w-100" data-bs-toggle="modal" data-bs-target="#restoreModal">
+                                <i class="fas fa-upload me-1"></i>Restore Database
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="mb-4">
+                    <h6>Data Cleanup</h6>
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <button type="button" class="btn btn-danger w-100" onclick="confirmCleanup()">
+                                <i class="fas fa-trash me-1"></i>Clean Old Data
+                            </button>
+                        </div>
+                        <div class="col-6">
+                            <a href="{{ url_for('view_system_logs') }}" class="btn btn-info w-100">
+                                <i class="fas fa-file-alt me-1"></i>View Logs
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="mb-4">
+                    <h6>System Diagnostics</h6>
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <button type="button" class="btn btn-secondary w-100" onclick="runSystemCheck()" id="systemCheckBtn">
+                                <i class="fas fa-stethoscope me-1"></i>System Check
+                            </button>
+                        </div>
+                        <div class="col-6">
+                            <button type="button" class="btn btn-secondary w-100" onclick="clearCache()" id="clearCacheBtn">
+                                <i class="fas fa-broom me-1"></i>Clear Cache
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="mb-3">
+                    <h6>System Information</h6>
+                    <div class="bg-light p-3 rounded">
+                        <div class="row g-2">
+                            <div class="col-6">
+                                <strong>Database Size:</strong><br>
+                                <span class="text-muted">{{ system_info.db_size or 'Unknown' }}</span>
+                            </div>
+                            <div class="col-6">
+                                <strong>Total Students:</strong><br>
+                                <span class="text-muted">{{ system_info.total_students or 0 }}</span>
+                            </div>
+                            <div class="col-6">
+                                <strong>Total Courses:</strong><br>
+                                <span class="text-muted">{{ system_info.total_courses or 0 }}</span>
+                            </div>
+                            <div class="col-6">
+                                <strong>Last Backup:</strong><br>
+                                <span class="text-muted">{{ system_info.last_backup or 'Never' }}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Restore Database Modal -->
+<div class="modal fade" id="restoreModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Restore Database</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="{{ url_for('restore_database') }}" enctype="multipart/form-data">
+                <div class="modal-body">
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        <strong>Warning:</strong> This will replace all current data. Make sure you have a backup first.
+                    </div>
+                    <div class="mb-3">
+                        <label for="backup_file" class="form-label">Select Backup File</label>
+                        <input type="file" class="form-control" id="backup_file" name="backup_file" 
+                               accept=".db,.sqlite,.sql" required>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-warning">
+                        <i class="fas fa-upload me-1"></i>Restore Database
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Cleanup Confirmation Modal -->
+<div class="modal fade" id="cleanupModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Confirm Data Cleanup</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>This will permanently delete old attendance records older than:</p>
+                <div class="mb-3">
+                    <label for="cleanup_months" class="form-label">Months</label>
+                    <select class="form-select" id="cleanup_months" name="cleanup_months">
+                        <option value="6">6 months</option>
+                        <option value="12" selected>12 months</option>
+                        <option value="24">24 months</option>
+                        <option value="36">36 months</option>
+                    </select>
+                </div>
+                <div class="alert alert-danger">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    <strong>Warning:</strong> This action cannot be undone!
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" onclick="performCleanup()">
+                    <i class="fas fa-trash me-1"></i>Delete Old Data
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- System Check Results Modal -->
+<div class="modal fade" id="systemCheckModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-stethoscope me-2"></i>System Check Results
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="systemCheckResults">
+                    <!-- Results will be populated here -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Clear Cache Confirmation Modal -->
+<div class="modal fade" id="clearCacheModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-broom me-2"></i>Clear Cache
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to clear the system cache? This will:</p>
+                <ul>
+                    <li>Reload face recognition data</li>
+                    <li>Clear any cached system information</li>
+                    <li>May temporarily slow down the system</li>
+                </ul>
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i>
+                    This action is safe and will not affect your data.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="performClearCache()">Clear Cache</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Show/hide custom naming pattern field
+document.getElementById('batch_naming_convention').addEventListener('change', function() {
+    const customField = document.getElementById('custom_naming_pattern');
+    if (this.value === 'custom') {
+        customField.style.display = 'block';
+    } else {
+        customField.style.display = 'none';
+    }
+});
+
+// Initialize custom field visibility
+document.addEventListener('DOMContentLoaded', function() {
+    const conventionSelect = document.getElementById('batch_naming_convention');
+    const customField = document.getElementById('custom_naming_pattern');
+    if (conventionSelect.value === 'custom') {
+        customField.style.display = 'block';
+    }
+});
+
+function confirmCleanup() {
+    var modal = new bootstrap.Modal(document.getElementById('cleanupModal'));
+    modal.show();
+}
+
+function performCleanup() {
+    const months = document.getElementById('cleanup_months').value;
+    
+    fetch('{{ url_for("cleanup_old_data") }}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({months: months})
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('Data cleanup completed successfully!\n' + data.message);
+            location.reload();
+        } else {
+            alert('Error during cleanup: ' + data.message);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error during cleanup: ' + error.message);
+    });
+    
+    // Close modal
+    var modal = bootstrap.Modal.getInstance(document.getElementById('cleanupModal'));
+    modal.hide();
+}
+
+function runSystemCheck() {
+    // Show loading state
+    const btn = document.getElementById('systemCheckBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Running Check...';
+    
+    fetch('{{ url_for("run_system_check") }}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        }
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (data.success) {
+            // Format results for modal display
+            let html = '<div class="row">';
+            
+            if (data.checks) {
+                html += '<div class="col-md-6">';
+                html += '<h6><i class="fas fa-database me-2"></i>Database Statistics</h6>';
+                html += '<ul class="list-group list-group-flush">';
+                html += `<li class="list-group-item d-flex justify-content-between"><span>Students</span><span class="badge bg-primary">${data.checks.student_count}</span></li>`;
+                html += `<li class="list-group-item d-flex justify-content-between"><span>Courses</span><span class="badge bg-primary">${data.checks.course_count}</span></li>`;
+                html += `<li class="list-group-item d-flex justify-content-between"><span>Users</span><span class="badge bg-primary">${data.checks.user_count}</span></li>`;
+                html += `<li class="list-group-item d-flex justify-content-between"><span>Enrollments</span><span class="badge bg-success">${data.checks.enrollment_count || 0}</span></li>`;
+                html += `<li class="list-group-item d-flex justify-content-between"><span>Attendance Records</span><span class="badge bg-info">${data.checks.attendance_records || 0}</span></li>`;
+                html += `<li class="list-group-item d-flex justify-content-between"><span>Batches</span><span class="badge bg-warning">${data.checks.batch_count || 0}</span></li>`;
+                html += '</ul>';
+                html += '</div>';
+                
+                html += '<div class="col-md-6">';
+                html += '<h6><i class="fas fa-check-circle me-2"></i>System Health</h6>';
+                html += '<ul class="list-group list-group-flush">';
+                html += `<li class="list-group-item d-flex justify-content-between"><span>Database Connection</span><span class="badge bg-success">OK</span></li>`;
+                html += `<li class="list-group-item d-flex justify-content-between"><span>Disk Space</span><span class="badge bg-success">${data.checks.disk_space || 'OK'}</span></li>`;
+                html += `<li class="list-group-item d-flex justify-content-between"><span>Memory Usage</span><span class="badge bg-success">${data.checks.memory_usage || 'OK'}</span></li>`;
+                html += '</ul>';
+                html += '</div>';
+            }
+            
+            html += '</div>';
+            html += '<div class="alert alert-success mt-3">';
+            html += '<i class="fas fa-check-circle me-2"></i>' + data.message;
+            html += '</div>';
+            
+            document.getElementById('systemCheckResults').innerHTML = html;
+            var modal = new bootstrap.Modal(document.getElementById('systemCheckModal'));
+            modal.show();
+        } else {
+            alert('System check failed: ' + data.message);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        if (error.message.includes('Unexpected token')) {
+            alert('Authentication error: Please log in again.');
+            window.location.href = '{{ url_for("login") }}';
+        } else {
+            alert('Error during system check: ' + error.message);
+        }
+    })
+    .finally(() => {
+        // Reset button state
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-stethoscope me-1"></i>System Check';
+    });
+}
+
+function clearCache() {
+    var modal = new bootstrap.Modal(document.getElementById('clearCacheModal'));
+    modal.show();
+}
+
+function performClearCache() {
+    // Show loading state
+    const btn = document.getElementById('clearCacheBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Clearing...';
+    
+    fetch('{{ url_for("clear_cache") }}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        }
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        // Close modal first
+        var modal = bootstrap.Modal.getInstance(document.getElementById('clearCacheModal'));
+        modal.hide();
+        
+        if (data.success) {
+            // Show success alert
+            const alert = document.createElement('div');
+            alert.className = 'alert alert-success alert-dismissible fade show';
+            alert.innerHTML = `
+                <i class="fas fa-check-circle me-2"></i>
+                <strong>Cache Cleared Successfully!</strong>
+                <br>Face recognition data has been reloaded.
+                <br><small>Timestamp: ${data.timestamp || new Date().toLocaleString()}</small>
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            
+            // Insert alert at the top of the page
+            const container = document.querySelector('.container-fluid');
+            container.insertBefore(alert, container.firstChild);
+            
+            // Auto-dismiss after 5 seconds
+            setTimeout(() => {
+                if (alert.parentNode) {
+                    alert.remove();
+                }
+            }, 5000);
+            
+        } else {
+            alert('Error clearing cache: ' + data.message);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        if (error.message.includes('Unexpected token')) {
+            alert('Authentication error: Please log in again.');
+            window.location.href = '{{ url_for("login") }}';
+        } else {
+            alert('Error clearing cache: ' + error.message);
+        }
+    })
+    .finally(() => {
+        // Reset button state
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-broom me-1"></i>Clear Cache';
+    });
+}
+</script>
+{% endblock %}
