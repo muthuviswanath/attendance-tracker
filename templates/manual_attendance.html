@@ -154,15 +154,24 @@ if (form) {
                 })
             });
             
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
             const data = await response.json();
+            
+            console.log('Response data:', data); // Debug logging
             
             if (data.success) {
                 let message = '';
-                if (data.marked_students.length > 0) {
+                if (data.marked_students && Array.isArray(data.marked_students) && data.marked_students.length > 0) {
                     message += `<p class="text-success"><i class="fas fa-check me-1"></i>Marked present: ${data.marked_students.join(', ')}</p>`;
                 }
-                if (data.already_marked.length > 0) {
+                if (data.already_marked && Array.isArray(data.already_marked) && data.already_marked.length > 0) {
                     message += `<p class="text-warning"><i class="fas fa-info-circle me-1"></i>Already marked: ${data.already_marked.join(', ')}</p>`;
+                }
+                if (!message) {
+                    message = '<p class="text-info"><i class="fas fa-info-circle me-1"></i>No students were processed.</p>';
                 }
                 statusDisplay.innerHTML = message;
                 
@@ -174,6 +183,7 @@ if (form) {
                 statusDisplay.innerHTML = `<p class="text-danger"><i class="fas fa-exclamation-triangle me-1"></i>Error: ${data.error}</p>`;
             }
         } catch (error) {
+            console.error('Error in attendance submission:', error); // Debug logging
             statusDisplay.innerHTML = `<p class="text-danger"><i class="fas fa-exclamation-triangle me-1"></i>Network error: ${error.message}</p>`;
         }
     });

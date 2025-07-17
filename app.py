@@ -5,6 +5,7 @@ from logging.handlers import RotatingFileHandler
 from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, g, session
 import cv2
 import numpy as np
+from PIL import Image
 from datetime import datetime, date, timedelta
 import base64
 from werkzeug.utils import secure_filename
@@ -52,6 +53,41 @@ else:
 
 # Ensure upload directory exists
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+# Logging helper function
+def log_user_action(action, details="", resource_type="", resource_id="", status="SUCCESS"):
+    """
+    Log user actions consistently throughout the application.
+    
+    Args:
+        action (str): The action performed (e.g., "CREATE", "UPDATE", "DELETE", "VIEW")
+        details (str): Additional details about the action
+        resource_type (str): Type of resource affected (e.g., "STUDENT", "COURSE", "BATCH")
+        resource_id (str): ID or identifier of the resource
+        status (str): Status of the action ("SUCCESS", "FAILED", "WARNING")
+    """
+    username = session.get('username', 'ANONYMOUS')
+    user_role = session.get('role', 'UNKNOWN')
+    
+    log_message = f"USER_ACTION | User: {username} ({user_role}) | Action: {action}"
+    
+    if resource_type:
+        log_message += f" | Resource: {resource_type}"
+    
+    if resource_id:
+        log_message += f" | ID: {resource_id}"
+    
+    if details:
+        log_message += f" | Details: {details}"
+    
+    log_message += f" | Status: {status}"
+    
+    if status == "SUCCESS":
+        app.logger.info(log_message)
+    elif status == "WARNING":
+        app.logger.warning(log_message)
+    else:  # FAILED or ERROR
+        app.logger.error(log_message)
 
 # Database helper functions
 def get_db():
@@ -491,6 +527,12 @@ def mark_attendance_with_aggregation(student_id, course_id, date, time, status='
     """Mark attendance and immediately update main course aggregation"""
     db = get_db()
     
+    # Convert time to string if it's a time object
+    if hasattr(time, 'strftime'):
+        time_str = time.strftime('%H:%M:%S')
+    else:
+        time_str = str(time)
+    
     # Get student and course info for logging
     student = db.execute('SELECT name, student_id FROM students WHERE id = ?', (student_id,)).fetchone()
     course = db.execute('SELECT course_name, parent_course_id FROM courses WHERE id = ?', (course_id,)).fetchone()
@@ -500,7 +542,7 @@ def mark_attendance_with_aggregation(student_id, course_id, date, time, status='
         '''INSERT OR REPLACE INTO attendance 
            (student_id, course_id, date, time, status, attendance_type)
            VALUES (?, ?, ?, ?, ?, 'direct')''',
-        (student_id, course_id, date, time, status)
+        (student_id, course_id, date, time_str, status)
     )
     
     app.logger.info(f'Attendance marked: {student["name"]} ({student["student_id"]}) - {status} for {course["course_name"]} on {date}')
@@ -515,7 +557,7 @@ def mark_attendance_with_aggregation(student_id, course_id, date, time, status='
             '''INSERT OR REPLACE INTO attendance 
                (student_id, course_id, date, time, status, attendance_type)
                VALUES (?, ?, ?, ?, ?, 'aggregated')''',
-            (student_id, main_course_id, date, time, 
+            (student_id, main_course_id, date, time_str, 
              'Present' if attendance_data['percentage'] >= 75 else 'Absent')
         )
         
@@ -585,61 +627,126 @@ def enroll_student_direct(student_id, course_id):
     return True
 
 # Face Recognition Class (Simplified version using OpenCV)
+# Face Recognition Class (using OpenCV with template matching)
 class FaceRecognizer:
     def __init__(self):
-        self.known_face_encodings = []
+        self.known_face_templates = []
         self.known_face_names = []
+        self.known_face_student_ids = []
         self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
         self.load_known_faces()
     
     def load_known_faces(self):
-        """Load all student face encodings from database"""
-        print("DEBUG: Loading known faces...")
+        """Load all student face templates from database"""
+        app.logger.info("Loading known faces for recognition...")
         db = get_db()
         students = db.execute(
-            'SELECT student_id, name FROM students'
+            'SELECT id, student_id, name, photo_path FROM students WHERE photo_path IS NOT NULL'
         ).fetchall()
         
-        self.known_face_encodings = []
+        self.known_face_templates = []
         self.known_face_names = []
+        self.known_face_student_ids = []
+        
+        loaded_count = 0
         
         for student in students:
-            # For demo purposes, store all students (since we can't do real face recognition)
-            self.known_face_names.append(student['student_id'])
-            print(f"DEBUG: Loaded student: {student['student_id']} - {student['name']}")
+            if student['photo_path']:
+                # Construct full path to photo
+                photo_path = os.path.join(app.config['UPLOAD_FOLDER'], student['photo_path'])
+                
+                if os.path.exists(photo_path):
+                    try:
+                        # Load image
+                        image = cv2.imread(photo_path)
+                        if image is not None:
+                            # Convert to grayscale
+                            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+                            
+                            # Detect faces in the student photo
+                            faces = self.face_cascade.detectMultiScale(gray, 1.1, 4)
+                            
+                            if len(faces) > 0:
+                                # Use the first (largest) face found
+                                (x, y, w, h) = faces[0]
+                                face_template = gray[y:y+h, x:x+w]
+                                
+                                # Resize to standard size for better matching
+                                face_template = cv2.resize(face_template, (100, 100))
+                                
+                                self.known_face_templates.append(face_template)
+                                self.known_face_names.append(student['name'])
+                                self.known_face_student_ids.append(student['id'])
+                                loaded_count += 1
+                                app.logger.info(f"Loaded face template for: {student['name']} ({student['student_id']})")
+                            else:
+                                app.logger.warning(f"No face found in photo for student: {student['name']} ({student['student_id']})")
+                        else:
+                            app.logger.warning(f"Could not load image for student: {student['name']} - {photo_path}")
+                    except Exception as e:
+                        app.logger.error(f"Error loading face template for {student['name']}: {str(e)}")
+                else:
+                    app.logger.warning(f"Photo file not found for student: {student['name']} - {photo_path}")
         
-        print(f"DEBUG: Total known faces loaded: {len(self.known_face_names)}")
+        app.logger.info(f"Total face templates loaded: {loaded_count}")
     
     def recognize_faces(self, frame):
-        """Detect faces in the given frame and simulate recognition"""
-        print("DEBUG: Starting face recognition...")
+        """Detect and recognize faces in the given frame"""
+        app.logger.info("Starting face recognition...")
         
-        # Convert to grayscale for face detection
+        # Convert to grayscale
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         
         # Detect faces
         faces = self.face_cascade.detectMultiScale(gray, 1.1, 4)
-        face_locations = []
+        
         recognized_students = []
+        face_locations = []
         
-        print(f"DEBUG: Detected {len(faces)} faces")
+        app.logger.info(f"Detected {len(faces)} faces")
         
-        # Convert face rectangles to locations format and simulate recognition
         for i, (x, y, w, h) in enumerate(faces):
-            face_locations.append((y, x+w, y+h, x))  # Convert to (top, right, bottom, left)
-            print(f"DEBUG: Face {i+1} detected at location: ({x}, {y}, {w}, {h})")
+            # Extract face from frame
+            face_roi = gray[y:y+h, x:x+w]
+            face_roi = cv2.resize(face_roi, (100, 100))
             
-            # Simulate recognition - for demo, recognize the first available student for each face
-            if self.known_face_names and len(self.known_face_names) > 0:
-                # For simplicity, just use the first student for the first face, second for second face, etc.
-                student_index = i % len(self.known_face_names)
-                recognized_student = self.known_face_names[student_index]
-                recognized_students.append(recognized_student)
-                print(f"DEBUG: Recognized face {i+1} as student: {recognized_student}")
+            # Convert to face_locations format for consistency
+            face_locations.append((y, x+w, y+h, x))
+            
+            best_match = None
+            best_score = float('inf')
+            
+            # Compare with known face templates
+            for j, template in enumerate(self.known_face_templates):
+                try:
+                    # Use template matching
+                    result = cv2.matchTemplate(face_roi, template, cv2.TM_SQDIFF_NORMED)
+                    _, min_val, _, _ = cv2.minMaxLoc(result)
+                    
+                    if min_val < best_score:
+                        best_score = min_val
+                        best_match = j
+                        
+                except Exception as e:
+                    app.logger.error(f"Error in template matching: {str(e)}")
+                    continue
+            
+            # If we found a good match (low difference score)
+            if best_match is not None and best_score < 0.5:  # Threshold for recognition
+                student_id = self.known_face_student_ids[best_match]
+                student_name = self.known_face_names[best_match]
+                confidence = 1 - best_score  # Convert to confidence score
+                
+                recognized_students.append({
+                    'student_id': student_id,
+                    'name': student_name,
+                    'confidence': confidence
+                })
+                app.logger.info(f"Recognized student: {student_name} (ID: {student_id}) with confidence: {confidence:.2f}")
             else:
-                print("DEBUG: No known students available for recognition")
+                app.logger.info(f"Face {i+1} detected but not recognized (best score: {best_score:.3f})")
         
-        print(f"DEBUG: Final recognized students: {recognized_students}")
+        app.logger.info(f"Final recognized students: {len(recognized_students)}")
         return recognized_students, face_locations
 
 # Initialize face recognizer within app context
@@ -719,6 +826,9 @@ def dashboard():
 @app.route('/students')
 @admin_required
 def students():
+    # Log page access
+    log_user_action("VIEW", "Accessed student management page", "PAGE", "students")
+    
     db = get_db()
     students = db.execute('''
         SELECT s.*, b.batch_name 
@@ -787,6 +897,10 @@ def add_student():
         
         app.logger.info(f'Student added successfully: {name} ({student_id})')
         flash('Student added successfully!', 'success')
+        
+        # Log the action
+        log_user_action("CREATE", f"Added student {name} ({student_id})", "STUDENT", student_id)
+        
         return redirect(url_for('students'))
     
     # Get batches for the form
@@ -859,6 +973,10 @@ def edit_student(student_id):
             face_recognizer.load_known_faces()
         
         flash('Student updated successfully!', 'success')
+        
+        # Log the action
+        log_user_action("UPDATE", f"Updated student {name} ({student_id_new})", "STUDENT", student_id_new)
+        
         return redirect(url_for('students'))
     
     return render_template('edit_student.html', student=student)
@@ -894,6 +1012,10 @@ def delete_student(student_id):
         face_recognizer.load_known_faces()
     
     flash(f'Student "{student["name"]}" deleted successfully!', 'success')
+    
+    # Log the action
+    log_user_action("DELETE", f"Deleted student {student['name']} ({student_id})", "STUDENT", student_id)
+    
     return redirect(url_for('students'))
 
 @app.route('/courses')
@@ -951,6 +1073,10 @@ def add_course():
         db.commit()
         
         flash('Course added successfully!', 'success')
+        
+        # Log the action
+        log_user_action("CREATE", f"Added course {course_name} ({course_code})", "COURSE", course_code)
+        
         return redirect(url_for('courses'))
     
     # Get main courses for parent selection
@@ -1000,6 +1126,10 @@ def edit_course(course_id):
         db.commit()
         
         flash('Course updated successfully!', 'success')
+        
+        # Log the action
+        log_user_action("UPDATE", f"Updated course {course_name} ({course_code})", "COURSE", course_id)
+        
         return redirect(url_for('courses'))
     
     # Get main courses for parent selection (excluding current course to prevent self-reference)
@@ -1047,6 +1177,10 @@ def delete_course(course_id):
         flash(f'Course "{course["course_name"]}" deleted successfully!', 'success')
     
     db.commit()
+    
+    # Log the action
+    log_user_action("DELETE", f"Deleted course {course['course_name']} ({course_id})", "COURSE", course_id)
+    
     return redirect(url_for('courses'))
 
 # Batch Management Routes
@@ -1073,6 +1207,10 @@ def add_batch():
                      VALUES (?, ?, ?, ?)''', (batch_name, batch_year, description, min_attendance))
         db.commit()
         flash('Batch added successfully!', 'success')
+        
+        # Log the action
+        log_user_action("CREATE", f"Added batch {batch_name}", "BATCH", None)
+        
         return redirect(url_for('batches'))
     
     return render_template('add_batch.html')
@@ -1108,6 +1246,10 @@ def edit_batch(batch_id):
                   (batch_name, batch_year, description, min_attendance, batch_id))
         db.commit()
         flash('Batch updated successfully!', 'success')
+        
+        # Log the action
+        log_user_action("UPDATE", f"Updated batch {batch_name}", "BATCH", batch_id)
+        
         return redirect(url_for('batches'))
     
     return render_template('edit_batch.html', batch=batch)
@@ -1135,6 +1277,10 @@ def delete_batch(batch_id):
     db.commit()
     
     flash(f'Batch "{batch["batch_name"]}" deleted successfully!', 'success')
+    
+    # Log the action
+    log_user_action("DELETE", f"Deleted batch {batch['batch_name']}", "BATCH", batch_id)
+    
     return redirect(url_for('batches'))
 
 @app.route('/batch_enrollments/<int:batch_id>')
@@ -1191,6 +1337,9 @@ def enroll_batch_course():
         db.commit()
         
         flash('Course enrolled for batch successfully!', 'success')
+        
+        # Log the action
+        log_user_action("CREATE", f"Enrolled course in batch: {course_id} -> {batch_id}", "BATCH_COURSE_ENROLLMENT", None)
     except Exception as e:
         flash(f'Error enrolling course: {str(e)}', 'error')
     
@@ -1209,6 +1358,9 @@ def unenroll_batch_course(batch_id, course_id):
         db.commit()
         
         flash('Course unenrolled from batch successfully!', 'success')
+        
+        # Log the action
+        log_user_action("DELETE", f"Unenrolled course from batch: {course_id} -> {batch_id}", "BATCH_COURSE_ENROLLMENT", None)
     except Exception as e:
         flash(f'Error unenrolling course: {str(e)}', 'error')
     
@@ -1258,6 +1410,9 @@ def bulk_enroll():
                     enroll_student_with_batch_priority(student_id, course_id)
                     added_enrollments.append(f"{student['name']} → {course['course_code']}")
         
+        # Log successful bulk enrollment
+        log_user_action("BULK_ENROLL", f"Bulk enrolled {len(added_enrollments)} students in courses", "ENROLLMENT", "")
+
         return jsonify({
             'success': True,
             'added_enrollments': added_enrollments,
@@ -1265,6 +1420,7 @@ def bulk_enroll():
         })
     
     except Exception as e:
+        log_user_action("BULK_ENROLL", f"Failed bulk enrollment", "ENROLLMENT", "", "FAILED")
         return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/bulk_unenroll_students', methods=['POST'])
@@ -1292,12 +1448,16 @@ def bulk_unenroll_students():
         
         db.commit()
         
+        # Log successful bulk unenrollment
+        log_user_action("BULK_UNENROLL", f"Bulk unenrolled {unenrolled_count} enrollments", "ENROLLMENT", "")
+        
         return jsonify({
             'success': True,
             'message': f'Successfully unenrolled {unenrolled_count} enrollments'
         })
     
     except Exception as e:
+        log_user_action("BULK_UNENROLL", f"Failed bulk unenrollment", "ENROLLMENT", "", "FAILED")
         return jsonify({'success': False, 'message': str(e)})
 
 @app.route('/toggle_enrollment', methods=['POST'])
@@ -1325,22 +1485,28 @@ def toggle_enrollment():
             # Unenroll
             db.execute('DELETE FROM enrollments WHERE id = ?', (existing['id'],))
             action = 'unenrolled'
+            log_user_action("UNENROLL", f"Unenrolled student {student_id} from course {course_id}", "ENROLLMENT", existing['id'])
         else:
             # Enroll
             enroll_student_with_batch_priority(student_id, course_id)
             action = 'enrolled'
+            log_user_action("ENROLL", f"Enrolled student {student_id} in course {course_id}", "ENROLLMENT", "")
         
         db.commit()
         
         return jsonify({'success': True, 'action': action})
     
     except Exception as e:
+        log_user_action("TOGGLE_ENROLLMENT", f"Failed to toggle enrollment for student {student_id} and course {course_id}", "ENROLLMENT", "", "FAILED")
         return jsonify({'success': False, 'message': str(e)})
 
 @app.route('/settings')
 @admin_required
 def settings():
     """Settings page"""
+    # Log settings page access
+    log_user_action("VIEW", "Accessed settings page", "PAGE", "settings")
+    
     db = get_db()
     
     # Get current settings or defaults
@@ -1354,6 +1520,59 @@ def settings():
                          attendance_settings=attendance_settings,
                          batch_settings=batch_settings,
                          system_info=system_info)
+
+@app.route('/view_system_logs')
+@admin_required
+def view_system_logs():
+    """View system logs page"""
+    try:
+        # Log access to system logs
+        log_user_action("VIEW", "Accessed system logs page", "PAGE", "system_logs")
+        
+        import os
+        log_file_path = 'logs/attendance_system.log'
+        logs = []
+        
+        if os.path.exists(log_file_path):
+            with open(log_file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                lines = f.readlines()
+                # Get last 100 lines
+                logs = lines[-100:] if len(lines) > 100 else lines
+                logs.reverse()  # Show newest first
+        else:
+            logs = ["No log file found. Logging may not be initialized yet."]
+        
+        # Generate system stats for the template
+        db = get_db()
+        from datetime import datetime, timedelta
+        
+        # Count active users (users who logged in within last 24 hours)
+        yesterday = (datetime.now() - timedelta(days=1)).isoformat()
+        
+        system_stats = {
+            'active_users': db.execute('SELECT COUNT(*) FROM users WHERE is_active = 1').fetchone()[0],
+            'recent_attendance': db.execute(
+                'SELECT COUNT(*) FROM attendance WHERE created_at > ?', 
+                (yesterday,)
+            ).fetchone()[0],
+            'login_attempts': 0,  # Could be parsed from logs if needed
+            'system_errors': 0    # Could be parsed from logs if needed
+        }
+        
+        # Parse logs for additional stats (optional enhancement)
+        login_attempts = sum(1 for log in logs if 'Login attempt' in log and yesterday[:10] in log)
+        system_errors = sum(1 for log in logs if 'ERROR' in log and yesterday[:10] in log)
+        
+        system_stats['login_attempts'] = login_attempts
+        system_stats['system_errors'] = system_errors
+        
+        return render_template('system_logs.html', logs=logs, system_stats=system_stats)
+        
+    except Exception as e:
+        app.logger.error(f"Error reading system logs: {str(e)}")
+        log_user_action("VIEW", f"Failed to access system logs: {str(e)}", "PAGE", "system_logs", "FAILED")
+        flash('Error reading system logs', 'error')
+        return redirect(url_for('settings'))
 
 def get_general_settings():
     """Get general system settings"""
@@ -1483,6 +1702,10 @@ def update_general_settings():
             ''', (key, value))
     
     db.commit()
+    
+    # Log settings update
+    log_user_action("UPDATE", f"Updated general settings", "SETTINGS", "general")
+    
     flash('General settings updated successfully!', 'success')
     return redirect(url_for('settings'))
 
@@ -1507,6 +1730,10 @@ def update_attendance_settings():
             ''', (key, value))
     
     db.commit()
+    
+    # Log settings update
+    log_user_action("UPDATE", f"Updated attendance settings", "SETTINGS", "attendance")
+    
     flash('Attendance settings updated successfully!', 'success')
     return redirect(url_for('settings'))
 
@@ -1560,11 +1787,15 @@ def backup_database():
         ''', (datetime.now().isoformat(),))
         db.commit()
         
+        # Log backup creation
+        log_user_action("BACKUP", f"Created database backup: {backup_filename}", "DATABASE", backup_filename)
+        
         # Return file for download
         from flask import send_file
         return send_file(backup_path, as_attachment=True, download_name=backup_filename)
         
     except Exception as e:
+        log_user_action("BACKUP", f"Failed to create database backup: {str(e)}", "DATABASE", "", "FAILED")
         flash(f'Backup failed: {str(e)}', 'error')
         return redirect(url_for('settings'))
 
@@ -1603,9 +1834,13 @@ def restore_database():
         import shutil
         shutil.move(temp_path, app.config['DATABASE'])
         
+        # Log database restore
+        log_user_action("RESTORE", f"Restored database from backup file: {file.filename}", "DATABASE", file.filename)
+        
         flash('Database restored successfully!', 'success')
         
     except Exception as e:
+        log_user_action("RESTORE", f"Failed to restore database from backup: {str(e)}", "DATABASE", "", "FAILED")
         flash(f'Restore failed: {str(e)}', 'error')
         
     return redirect(url_for('settings'))
@@ -1630,12 +1865,16 @@ def cleanup_old_data():
         deleted_count = result.rowcount
         db.commit()
         
+        # Log cleanup operation
+        log_user_action("CLEANUP", f"Cleaned up {deleted_count} attendance records older than {months} months", "MAINTENANCE", "")
+        
         return jsonify({
             'success': True,
             'message': f'Deleted {deleted_count} old attendance records'
         })
         
     except Exception as e:
+        log_user_action("CLEANUP", f"Failed to cleanup old data: {str(e)}", "MAINTENANCE", "", "FAILED")
         return jsonify({
             'success': False,
             'message': str(e)
@@ -1800,31 +2039,72 @@ def quick_checkin(course_id):
 @attendance_taker_required
 def quick_checkin_submit():
     """Submit quick check-in attendance"""
-    course_id = request.form.get('course_id')
-    student_id = request.form.get('student_id')
-    
-    if not course_id or not student_id:
-        flash('Missing course or student information!', 'error')
-        return redirect(url_for('mark_attendance'))
-    
     try:
+        course_id = request.form.get('course_id')
+        student_id = request.form.get('student_id')
+        
+        if not course_id or not student_id:
+            return jsonify({
+                'success': False, 
+                'message': 'Missing course or student information!'
+            })
+        
         from datetime import datetime
         now = datetime.now()
+        
+        # Get student info for logging
+        db = get_db()
+        student = db.execute('SELECT name, student_id FROM students WHERE id = ?', (student_id,)).fetchone()
+        course = db.execute('SELECT course_name FROM courses WHERE id = ?', (course_id,)).fetchone()
+        
+        if not student:
+            return jsonify({
+                'success': False,
+                'message': 'Student not found!'
+            })
+        
+        if not course:
+            return jsonify({
+                'success': False,
+                'message': 'Course not found!'
+            })
+        
+        # Check if already marked today
+        today = now.date().isoformat()
+        existing = db.execute(
+            'SELECT id FROM attendance WHERE student_id = ? AND course_id = ? AND date = ?',
+            (student_id, course_id, today)
+        ).fetchone()
+        
+        if existing:
+            return jsonify({
+                'success': False,
+                'message': f'{student["name"]} attendance already marked for today!'
+            })
         
         # Mark attendance
         mark_attendance_with_aggregation(
             student_id=int(student_id),
             course_id=int(course_id),
             date=now.date(),
-            time=now.time(),
+            time=now.time().strftime('%H:%M:%S'),
             status='Present'
         )
         
-        flash('Attendance marked successfully!', 'success')
+        # Log quick checkin
+        log_user_action("QUICK_CHECKIN", f"Quick checkin for {student['name']} ({student['student_id']}) in {course['course_name']}", "ATTENDANCE", student_id)
+        
+        return jsonify({
+            'success': True,
+            'message': f'Attendance marked successfully for {student["name"]}!'
+        })
+        
     except Exception as e:
-        flash(f'Error marking attendance: {str(e)}', 'error')
-    
-    return redirect(url_for('quick_checkin', course_id=course_id))
+        log_user_action("QUICK_CHECKIN", f"Failed quick checkin for student {student_id} in course {course_id}: {str(e)}", "ATTENDANCE", student_id, "FAILED")
+        return jsonify({
+            'success': False,
+            'message': f'Error marking attendance: {str(e)}'
+        })
 
 @app.route('/bulk_attendance/<int:course_id>')
 @attendance_taker_required
@@ -1847,6 +2127,270 @@ def bulk_attendance(course_id):
     ''', (course_id,)).fetchall()
     
     return render_template('bulk_attendance.html', course=course, students=students)
+
+@app.route('/save_bulk_attendance', methods=['POST'])
+@attendance_taker_required
+def save_bulk_attendance():
+    """Save bulk attendance data"""
+    try:
+        data = request.get_json()
+        course_id = data.get('course_id')
+        attendance_data = data.get('attendance_data', {})
+        
+        if not course_id or not attendance_data:
+            return jsonify({
+                'success': False,
+                'message': 'Missing course or attendance data'
+            })
+        
+        db = get_db()
+        from datetime import datetime
+        now = datetime.now()
+        today = now.date().isoformat()
+        now_time = now.time().strftime('%H:%M:%S')
+        
+        # Get course info
+        course = db.execute('SELECT * FROM courses WHERE id = ?', (course_id,)).fetchone()
+        if not course:
+            return jsonify({
+                'success': False,
+                'message': 'Course not found'
+            })
+        
+        processed_students = []
+        
+        # Process each student's attendance
+        for student_id, status in attendance_data.items():
+            if not student_id or not status:
+                continue
+            
+            # Get student info
+            student = db.execute('SELECT * FROM students WHERE id = ?', (student_id,)).fetchone()
+            if not student:
+                continue
+            
+            # Check if already marked today
+            existing = db.execute(
+                'SELECT id FROM attendance WHERE student_id = ? AND course_id = ? AND date = ?',
+                (student_id, course_id, today)
+            ).fetchone()
+            
+            if not existing:
+                # Mark attendance using the main function to handle aggregation
+                mark_attendance_with_aggregation(
+                    student_id=int(student_id),
+                    course_id=int(course_id),
+                    date=now.date(),
+                    time=now_time,
+                    status=status.capitalize()
+                )
+                
+                # Add to processed list if present
+                if status.lower() == 'present':
+                    processed_students.append(student['name'])
+        
+        # Log bulk attendance
+        log_user_action("BULK_ATTENDANCE", f"Bulk attendance saved for {len(attendance_data)} students in course {course_id}", "ATTENDANCE", course_id)
+        
+        return jsonify({
+            'success': True,
+            'message': f'Attendance saved successfully for {len(attendance_data)} students',
+            'processed_students': processed_students
+        })
+    
+    except Exception as e:
+        log_user_action("BULK_ATTENDANCE", f"Failed to save bulk attendance for course {course_id}: {str(e)}", "ATTENDANCE", course_id, "FAILED")
+        return jsonify({
+            'success': False,
+            'message': f'Error saving attendance: {str(e)}'
+        })
+
+@app.route('/manual_attendance_submit', methods=['POST'])
+@attendance_taker_required
+def manual_attendance_submit():
+    """Submit manual attendance data"""
+    try:
+        course_id = request.form.get('course_id')
+        students = request.form.get('students')
+        date = request.form.get('date')
+        time = request.form.get('time')
+        
+        if not course_id or not students:
+            return jsonify({'success': False, 'error': 'Missing course or student data'})
+        
+        # Parse student IDs
+        student_ids = [int(sid.strip()) for sid in students.split(',') if sid.strip()]
+        
+        if not student_ids:
+            return jsonify({'success': False, 'error': 'No students selected'})
+        
+        db = get_db()
+        marked_students = []
+        already_marked = []
+        
+        # Get course info
+        course = db.execute('SELECT * FROM courses WHERE id = ?', (course_id,)).fetchone()
+        if not course:
+            return jsonify({'success': False, 'error': 'Course not found'})
+        
+        # Mark attendance for each student
+        for student_id in student_ids:
+            # Get student info
+            student = db.execute('SELECT * FROM students WHERE id = ?', (student_id,)).fetchone()
+            if not student:
+                continue
+            
+            # Check if already marked today
+            existing = db.execute(
+                'SELECT id FROM attendance WHERE student_id = ? AND course_id = ? AND date = ?',
+                (student_id, course_id, date)
+            ).fetchone()
+            
+            if not existing:
+                # Mark attendance
+                db.execute(
+                    'INSERT INTO attendance (student_id, course_id, date, time, status) VALUES (?, ?, ?, ?, ?)',
+                    (student_id, course_id, date, time, 'Present')
+                )
+                marked_students.append(student['name'])
+            else:
+                already_marked.append(student['name'])
+        
+        db.commit()
+        
+        # Log attendance submission
+        log_user_action("MARK_ATTENDANCE", f"Manual attendance marked for {len(marked_students)} students in course {course_id}", "ATTENDANCE", course_id)
+        
+        return jsonify({
+            'success': True,
+            'message': f'Attendance saved successfully for {len(marked_students)} students',
+            'marked_students': marked_students,
+            'already_marked': already_marked
+        })
+    
+    except Exception as e:
+        log_user_action("MARK_ATTENDANCE", f"Failed to mark manual attendance for course {course_id}", "ATTENDANCE", course_id, "FAILED")
+        return jsonify({'success': False, 'error': str(e)})
+
+# Face Recognition API Endpoints
+
+@app.route('/api/recognize_faces', methods=['POST'])
+@attendance_taker_required
+def api_recognize_faces():
+    """API endpoint to recognize faces from webcam frame"""
+    try:
+        data = request.get_json()
+        if not data or 'image' not in data:
+            return jsonify({'success': False, 'error': 'No image data provided'})
+        
+        # Decode base64 image
+        image_data = data['image'].split(',')[1]  # Remove data:image/jpeg;base64, part
+        image_bytes = base64.b64decode(image_data)
+        
+        # Convert to OpenCV format
+        nparr = np.frombuffer(image_bytes, np.uint8)
+        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        if frame is None:
+            return jsonify({'success': False, 'error': 'Invalid image data'})
+        
+        # Initialize face recognizer if not already done
+        global face_recognizer
+        if face_recognizer is None:
+            init_face_recognizer()
+        
+        # Recognize faces
+        recognized_students, face_locations = face_recognizer.recognize_faces(frame)
+        
+        app.logger.info(f"Face recognition API: Found {len(recognized_students)} recognized students")
+        
+        return jsonify({
+            'success': True,
+            'recognized_students': recognized_students,
+            'face_count': len(face_locations)
+        })
+        
+    except Exception as e:
+        app.logger.error(f"Face recognition API error: {str(e)}")
+        return jsonify({'success': False, 'error': f'Recognition failed: {str(e)}'})
+
+@app.route('/api/mark_webcam_attendance', methods=['POST'])
+@attendance_taker_required
+def api_mark_webcam_attendance():
+    """API endpoint to mark attendance for recognized faces"""
+    try:
+        data = request.get_json()
+        course_id = data.get('course_id')
+        student_ids = data.get('student_ids', [])
+        
+        if not course_id:
+            return jsonify({'success': False, 'error': 'Course ID is required'})
+        
+        if not student_ids:
+            return jsonify({'success': False, 'error': 'No students to mark attendance for'})
+        
+        db = get_db()
+        from datetime import datetime
+        now = datetime.now()
+        today = now.date().isoformat()
+        current_time = now.time().strftime('%H:%M:%S')
+        
+        # Get course info
+        course = db.execute('SELECT * FROM courses WHERE id = ?', (course_id,)).fetchone()
+        if not course:
+            return jsonify({'success': False, 'error': 'Course not found'})
+        
+        marked_students = []
+        already_marked = []
+        
+        for student_id in student_ids:
+            # Get student info
+            student = db.execute('SELECT * FROM students WHERE id = ?', (student_id,)).fetchone()
+            if not student:
+                continue
+                
+            # Check if already marked today
+            existing = db.execute(
+                'SELECT id FROM attendance WHERE student_id = ? AND course_id = ? AND date = ?',
+                (student_id, course_id, today)
+            ).fetchone()
+            
+            if not existing:
+                # Mark attendance using the aggregation function
+                mark_attendance_with_aggregation(
+                    student_id=student_id,
+                    course_id=int(course_id),
+                    date=now.date(),
+                    time=current_time,
+                    status='Present'
+                )
+                marked_students.append({
+                    'id': student['id'],
+                    'name': student['name'],
+                    'student_id': student['student_id']
+                })
+                app.logger.info(f"Webcam attendance marked for: {student['name']} ({student['student_id']})")
+            else:
+                already_marked.append({
+                    'id': student['id'], 
+                    'name': student['name'],
+                    'student_id': student['student_id']
+                })
+        
+        # Log webcam attendance
+        log_user_action("WEBCAM_ATTENDANCE", f"Webcam attendance marked for {len(marked_students)} students in course {course_id}", "ATTENDANCE", course_id)
+        
+        return jsonify({
+            'success': True,
+            'marked_students': marked_students,
+            'already_marked': already_marked,
+            'message': f'Successfully marked attendance for {len(marked_students)} students'
+        })
+        
+    except Exception as e:
+        app.logger.error(f"Webcam attendance marking error: {str(e)}")
+        log_user_action("WEBCAM_ATTENDANCE", f"Failed webcam attendance for course {course_id}: {str(e)}", "ATTENDANCE", course_id, "FAILED")
+        return jsonify({'success': False, 'error': f'Failed to mark attendance: {str(e)}'})
 
 @app.route('/users')
 @admin_required
@@ -1887,6 +2431,9 @@ def add_user():
         )
         db.commit()
         
+        # Log user creation
+        log_user_action("CREATE", f"Added user {username} ({full_name}) with role {role}", "USER", username)
+        
         flash('User added successfully!', 'success')
         return redirect(url_for('users'))
     
@@ -1895,118 +2442,78 @@ def add_user():
 @app.route('/edit_user/<int:user_id>', methods=['GET', 'POST'])
 @admin_required
 def edit_user(user_id):
-    """Edit existing user"""
+    """Edit user"""
     db = get_db()
-    user = db.execute('SELECT * FROM users WHERE id = ?', (user_id,)).fetchone()
-    
-    if not user:
-        flash('User not found!', 'error')
-        return redirect(url_for('users'))
     
     if request.method == 'POST':
         username = request.form['username']
         role = request.form['role']
         full_name = request.form['full_name']
         email = request.form.get('email', '')
-        new_password = request.form.get('new_password', '')
         is_active = 1 if request.form.get('is_active') else 0
         
         # Check if username already exists (excluding current user)
-        existing_user = db.execute(
-            'SELECT id FROM users WHERE username = ? AND id != ?', 
-            (username, user_id)
-        ).fetchone()
-        
-        if existing_user:
+        existing = db.execute('SELECT id FROM users WHERE username = ? AND id != ?', (username, user_id)).fetchone()
+        if existing:
             flash('Username already exists!', 'error')
             return redirect(url_for('edit_user', user_id=user_id))
         
         # Update user
+        db.execute('''UPDATE users SET username = ?, role = ?, full_name = ?, email = ?, is_active = ?, 
+                     updated_at = CURRENT_TIMESTAMP WHERE id = ?''',
+                  (username, role, full_name, email, is_active, user_id))
+        
+        # Update password if provided
+        new_password = request.form.get('new_password')
         if new_password:
             password_hash = hash_password(new_password)
-            db.execute(
-                '''UPDATE users SET username = ?, password_hash = ?, role = ?, 
-                   full_name = ?, email = ?, is_active = ? WHERE id = ?''',
-                (username, password_hash, role, full_name, email, is_active, user_id)
-            )
-        else:
-            db.execute(
-                '''UPDATE users SET username = ?, role = ?, full_name = ?, 
-                   email = ?, is_active = ? WHERE id = ?''',
-                (username, role, full_name, email, is_active, user_id)
-            )
+            db.execute('UPDATE users SET password_hash = ? WHERE id = ?', (password_hash, user_id))
         
         db.commit()
+        
+        # Log user update
+        log_user_action("UPDATE", f"Updated user {username} ({full_name}) with role {role}", "USER", str(user_id))
+        
         flash('User updated successfully!', 'success')
         return redirect(url_for('users'))
     
-    return render_template('edit_user.html', user=user)
-
-@app.route('/delete_user/<int:user_id>')
-@admin_required
-def delete_user(user_id):
-    """Delete user"""
-    db = get_db()
+    # GET request - show edit form
     user = db.execute('SELECT * FROM users WHERE id = ?', (user_id,)).fetchone()
-    
     if not user:
         flash('User not found!', 'error')
         return redirect(url_for('users'))
     
-    # Prevent deleting yourself
-    if user_id == session.get('user_id'):
-        flash('You cannot delete your own account!', 'error')
+    return render_template('edit_user.html', user=user)
+
+@app.route('/delete_user/<int:user_id>', methods=['POST'])
+@admin_required
+def delete_user(user_id):
+    """Delete user"""
+    db = get_db()
+    
+    # Check if user exists and is not the current user
+    user = db.execute('SELECT * FROM users WHERE id = ?', (user_id,)).fetchone()
+    if not user:
+        flash('User not found!', 'error')
         return redirect(url_for('users'))
     
-    # Check if this is the last admin
-    if user['role'] == 'admin':
-        admin_count = db.execute("SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active = 1").fetchone()[0]
-        if admin_count <= 1:
-            flash('Cannot delete the last admin user!', 'error')
-            return redirect(url_for('users'))
+    if user['id'] == session.get('user_id'):
+        flash('You cannot delete yourself!', 'error')
+        return redirect(url_for('users'))
     
+    # Delete user
     db.execute('DELETE FROM users WHERE id = ?', (user_id,))
     db.commit()
+    
+    # Log user deletion
+    log_user_action("DELETE", f"Deleted user {user['username']} ({user['full_name']})", "USER", str(user_id))
     
     flash(f'User "{user["username"]}" deleted successfully!', 'success')
     return redirect(url_for('users'))
 
-@app.route('/view_system_logs')
-@admin_required
-def view_system_logs():
-    """View system logs"""
-    try:
-        # Get recent log entries (last 100)
-        logs = []
-        log_file = 'logs/attendance_system.log'
-        
-        if os.path.exists(log_file):
-            with open(log_file, 'r') as f:
-                logs = f.readlines()[-100:]  # Last 100 lines
-        else:
-            # Create a sample log entry
-            app.logger.info('System logs page accessed')
-            logs = ["System logs initialized. Activities will be logged here."]
-        
-        # Get system stats for the logs page
-        db = get_db()
-        system_stats = {
-            'active_users': db.execute('SELECT COUNT(*) FROM users WHERE is_active = 1').fetchone()[0],
-            'recent_attendance': db.execute('SELECT COUNT(*) FROM attendance WHERE date >= date("now", "-7 days")').fetchone()[0],
-            'login_attempts': 0,  # Would need to track this in a real system
-            'system_errors': 0    # Would need to track this in a real system
-        }
-        
-        return render_template('system_logs.html', logs=logs, system_stats=system_stats)
-    except Exception as e:
-        app.logger.error(f'Error reading logs: {str(e)}')
-        flash(f'Error reading logs: {str(e)}', 'error')
-        return redirect(url_for('settings'))
-
-@app.route('/attendance_report')
+@app.route('/generate_report')
 @attendance_taker_required
-
-def attendance_report():
+def generate_report():
     """Generate attendance report based on filters"""
     db = get_db()
     
@@ -2099,6 +2606,584 @@ def bulk_upload():
     
     return render_template('bulk_upload.html')
 
+@app.route('/bulk_upload_students', methods=['POST'])
+@admin_required
+def bulk_upload_students():
+    """Handle bulk upload of students from CSV file"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'success': False, 'error': 'No file uploaded'})
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'success': False, 'error': 'No file selected'})
+        
+        if not file.filename.endswith('.csv'):
+            return jsonify({'success': False, 'error': 'Please upload a CSV file'})
+        
+        # Read CSV file
+        import csv
+        import io
+        
+        # Read file content
+        file_content = file.read().decode('utf-8')
+        csv_reader = csv.DictReader(io.StringIO(file_content))
+        
+        # Validate CSV headers
+        required_headers = ['student_id', 'name', 'email']
+        if not all(header in csv_reader.fieldnames for header in required_headers):
+            return jsonify({
+                'success': False, 
+                'error': f'CSV must have headers: {", ".join(required_headers)}'
+            })
+        
+        db = get_db()
+        added_students = []
+        skipped_students = []
+        errors = []
+        
+        for row_num, row in enumerate(csv_reader, start=2):
+            try:
+                student_id = row['student_id'].strip()
+                name = row['name'].strip()
+                email = row['email'].strip()
+                batch_id = row.get('batch_id', '').strip() if row.get('batch_id') else None
+                
+                if not student_id or not name or not email:
+                    errors.append(f'Row {row_num}: Missing required fields')
+                    continue
+                
+                # Check if student already exists
+                existing = db.execute(
+                    'SELECT id FROM students WHERE student_id = ? OR email = ?',
+                    (student_id, email)
+                ).fetchone()
+                
+                if existing:
+                    skipped_students.append(f'{name} ({student_id})')
+                    continue
+                
+                # Insert student
+                db.execute(
+                    '''INSERT INTO students (student_id, name, email, batch_id)
+                       VALUES (?, ?, ?, ?)''',
+                    (student_id, name, email, batch_id)
+                )
+                
+                added_students.append(f'{name} ({student_id})')
+                
+            except Exception as e:
+                errors.append(f'Row {row_num}: {str(e)}')
+        
+        db.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Successfully uploaded {len(added_students)} students',
+            'details': {
+                'added': added_students,
+                'skipped': skipped_students,
+                'errors': errors
+            }
+        })
+        
+    except Exception as e:
+        app.logger.error(f'Error in bulk_upload_students: {str(e)}')
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/bulk_upload_courses', methods=['POST'])
+@admin_required
+def bulk_upload_courses():
+    """Handle bulk upload of courses from CSV file"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'success': False, 'error': 'No file uploaded'})
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'success': False, 'error': 'No file selected'})
+        
+        if not file.filename.endswith('.csv'):
+            return jsonify({'success': False, 'error': 'Please upload a CSV file'})
+        
+        # Read CSV file
+        import csv
+        import io
+        
+        file_content = file.read().decode('utf-8')
+        csv_reader = csv.DictReader(io.StringIO(file_content))
+        
+        # Validate CSV headers
+        required_headers = ['course_code', 'course_name', 'instructor']
+        if not all(header in csv_reader.fieldnames for header in required_headers):
+            return jsonify({
+                'success': False, 
+                'error': f'CSV must have headers: {", ".join(required_headers)}'
+            })
+        
+        db = get_db()
+        added_courses = []
+        skipped_courses = []
+        errors = []
+        
+        for row_num, row in enumerate(csv_reader, start=2):
+            try:
+                course_code = row['course_code'].strip()
+                course_name = row['course_name'].strip()
+                instructor = row['instructor'].strip()
+                schedule = row.get('schedule', '').strip()
+                parent_course_id = row.get('parent_course_id', '').strip()
+                min_attendance = row.get('min_attendance_percentage', '75.0').strip()
+                
+                if not course_code or not course_name or not instructor:
+                    errors.append(f'Row {row_num}: Missing required fields')
+                    continue
+                
+                # Check if course already exists
+                existing = db.execute(
+                    'SELECT id FROM courses WHERE course_code = ?',
+                    (course_code,)
+                ).fetchone()
+                
+                if existing:
+                    skipped_courses.append(f'{course_name} ({course_code})')
+                    continue
+                
+                # Determine course level
+                course_level = 2 if parent_course_id else 1
+                parent_id = int(parent_course_id) if parent_course_id else None
+                
+                # Insert course
+                db.execute(
+                    '''INSERT INTO courses (course_code, course_name, instructor, schedule, 
+                                          parent_course_id, course_level, min_attendance_percentage)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                    (course_code, course_name, instructor, schedule, parent_id, course_level, float(min_attendance))
+                )
+                
+                added_courses.append(f'{course_name} ({course_code})')
+                
+            except Exception as e:
+                errors.append(f'Row {row_num}: {str(e)}')
+        
+        db.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Successfully uploaded {len(added_courses)} courses',
+            'details': {
+                'added': added_courses,
+                'skipped': skipped_courses,
+                'errors': errors
+            }
+        })
+        
+    except Exception as e:
+        app.logger.error(f'Error in bulk_upload_courses: {str(e)}')
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/bulk_upload_enrollments', methods=['POST'])
+@admin_required
+def bulk_upload_enrollments():
+    """Handle bulk upload of enrollments from CSV file"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'success': False, 'error': 'No file uploaded'})
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'success': False, 'error': 'No file selected'})
+        
+        if not file.filename.endswith('.csv'):
+            return jsonify({'success': False, 'error': 'Please upload a CSV file'})
+        
+        # Read CSV file
+        import csv
+        import io
+        
+        file_content = file.read().decode('utf-8')
+        csv_reader = csv.DictReader(io.StringIO(file_content))
+        
+        # Validate CSV headers
+        required_headers = ['student_id', 'course_code']
+        if not all(header in csv_reader.fieldnames for header in required_headers):
+            return jsonify({
+                'success': False, 
+                'error': f'CSV must have headers: {", ".join(required_headers)}'
+            })
+        
+        db = get_db()
+        added_enrollments = []
+        skipped_enrollments = []
+        errors = []
+        
+        for row_num, row in enumerate(csv_reader, start=2):
+            try:
+                student_id = row['student_id'].strip()
+                course_code = row['course_code'].strip()
+                
+                if not student_id or not course_code:
+                    errors.append(f'Row {row_num}: Missing required fields')
+                    continue
+                
+                # Get student ID from student_id
+                student = db.execute(
+                    'SELECT id FROM students WHERE student_id = ?',
+                    (student_id,)
+                ).fetchone()
+                
+                if not student:
+                    errors.append(f'Row {row_num}: Student {student_id} not found')
+                    continue
+                
+                # Get course ID from course_code
+                course = db.execute(
+                    'SELECT id, parent_course_id FROM courses WHERE course_code = ?',
+                    (course_code,)
+                ).fetchone()
+                
+                if not course:
+                    errors.append(f'Row {row_num}: Course {course_code} not found')
+                    continue
+                
+                # Check if this is a sub-course (students can only enroll in sub-courses)
+                if not course['parent_course_id']:
+                    errors.append(f'Row {row_num}: Students can only enroll in sub-courses, not main courses')
+                    continue
+                
+                # Check if enrollment already exists
+                existing = db.execute(
+                    'SELECT id FROM enrollments WHERE student_id = ? AND course_id = ?',
+                    (student['id'], course['id'])
+                ).fetchone()
+                
+                if existing:
+                    skipped_enrollments.append(f'{student_id} -> {course_code}')
+                    continue
+                
+                # Create enrollment
+                db.execute(
+                    '''INSERT INTO enrollments (student_id, course_id, enrollment_type, is_active)
+                       VALUES (?, ?, 'direct', 1)''',
+                    (student['id'], course['id'])
+                )
+                
+                added_enrollments.append(f'{student_id} -> {course_code}')
+                
+            except Exception as e:
+                errors.append(f'Row {row_num}: {str(e)}')
+        
+        db.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Successfully created {len(added_enrollments)} enrollments',
+            'details': {
+                'added': added_enrollments,
+                'skipped': skipped_enrollments,
+                'errors': errors
+            }
+        })
+        
+    except Exception as e:
+        app.logger.error(f'Error in bulk_upload_enrollments: {str(e)}')
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/bulk_upload_courses_validate', methods=['POST'])
+@admin_required
+def bulk_upload_courses_validate():
+    """Validate bulk upload of courses without saving"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'success': False, 'error': 'No file uploaded'})
+        
+        file = request.files['file']
+        if not file.filename.endswith('.csv'):
+            return jsonify({'success': False, 'error': 'Please upload a CSV file'})
+        
+        import csv, io
+        file_content = file.read().decode('utf-8')
+        csv_reader = csv.DictReader(io.StringIO(file_content))
+        
+        required_headers = ['course_code', 'course_name', 'instructor']
+        if not all(header in csv_reader.fieldnames for header in required_headers):
+            return jsonify({'success': False, 'error': f'CSV must have headers: {", ".join(required_headers)}'})
+        
+        db = get_db()
+        validated_courses = []
+        skipped_courses = []
+        errors = []
+        
+        for row_num, row in enumerate(csv_reader, start=2):
+            try:
+                course_code = row['course_code'].strip()
+                course_name = row['course_name'].strip()
+                instructor = row['instructor'].strip()
+                
+                if not course_code or not course_name or not instructor:
+                    errors.append(f'Row {row_num}: Missing required fields')
+                    continue
+                
+                existing = db.execute('SELECT id FROM courses WHERE course_code = ?', (course_code,)).fetchone()
+                if existing:
+                    skipped_courses.append(f'{course_name} ({course_code})')
+                    continue
+                
+                validated_courses.append({
+                    'course_code': course_code,
+                    'course_name': course_name,
+                    'instructor': instructor,
+                    'schedule': row.get('schedule', '').strip(),
+                    'parent_course_id': int(row.get('parent_course_id', '')) if row.get('parent_course_id', '').strip() else None,
+                    'min_attendance_percentage': float(row.get('min_attendance_percentage', '75.0'))
+                })
+                
+            except Exception as e:
+                errors.append(f'Row {row_num}: {str(e)}')
+        
+        return jsonify({
+            'success': True,
+            'courses': validated_courses,
+            'details': {
+                'added': [f"{c['course_name']} ({c['course_code']})" for c in validated_courses],
+                'skipped': skipped_courses,
+                'errors': errors
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/bulk_upload_students_validate', methods=['POST'])
+@admin_required
+def bulk_upload_students_validate():
+    """Validate bulk upload of students without saving"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'success': False, 'error': 'No file uploaded'})
+        
+        file = request.files['file']
+        if not file.filename.endswith('.csv'):
+            return jsonify({'success': False, 'error': 'Please upload a CSV file'})
+        
+        import csv, io
+        file_content = file.read().decode('utf-8')
+        csv_reader = csv.DictReader(io.StringIO(file_content))
+        
+        required_headers = ['student_id', 'name', 'email']
+        if not all(header in csv_reader.fieldnames for header in required_headers):
+            return jsonify({'success': False, 'error': f'CSV must have headers: {", ".join(required_headers)}'})
+        
+        db = get_db()
+        validated_students = []
+        skipped_students = []
+        errors = []
+        batch_names = set()
+        existing_batches = set()
+        
+        # Get existing batch names
+        existing_batch_records = db.execute('SELECT batch_name FROM batches').fetchall()
+        existing_batch_names = {batch['batch_name'] for batch in existing_batch_records}
+        
+        for row_num, row in enumerate(csv_reader, start=2):
+            try:
+                student_id = row['student_id'].strip()
+                name = row['name'].strip()
+                email = row['email'].strip()
+                batch_name = row.get('batch_name', '').strip() if 'batch_name' in row else None
+                
+                app.logger.info(f"Processing row {row_num}: student_id={student_id}, batch_name='{batch_name}'")
+                
+                if not student_id or not name or not email:
+                    errors.append(f'Row {row_num}: Missing required fields')
+                    continue
+                
+                existing = db.execute('SELECT id FROM students WHERE student_id = ? OR email = ?', (student_id, email)).fetchone()
+                if existing:
+                    skipped_students.append(f'{name} ({student_id})')
+                    continue
+                
+                # Track batch names
+                if batch_name:
+                    batch_names.add(batch_name)
+                    if batch_name in existing_batch_names:
+                        existing_batches.add(batch_name)
+                
+                validated_students.append({
+                    'student_id': student_id,
+                    'name': name,
+                    'email': email,
+                    'batch_name': batch_name
+                })
+                
+            except Exception as e:
+                errors.append(f'Row {row_num}: {str(e)}')
+        
+        # Determine new batches to create
+        new_batches = batch_names - existing_batches
+        
+        return jsonify({
+            'success': True,
+            'students': validated_students,
+            'batch_summary': {
+                'new_batches': list(new_batches),
+                'existing_batches': list(existing_batches)
+            },
+            'details': {
+                'added': [f"{s['name']} ({s['student_id']})" for s in validated_students],
+                'skipped': skipped_students,
+                'errors': errors
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/finalize_bulk_upload', methods=['POST'])
+@admin_required 
+def finalize_bulk_upload():
+    """Finalize bulk upload - all or nothing"""
+    try:
+        data = request.get_json()
+        db = get_db()
+        
+        # Log the incoming data for debugging
+        app.logger.info(f"Bulk upload data received: courses={data.get('courses', {})}, students={data.get('students', {})}")
+        
+        db.execute('BEGIN TRANSACTION')
+        courses_added = students_added = enrollments_added = 0
+        batches_created = 0
+        
+        # Handle courses - either existing IDs or new course data
+        course_ids = []
+        courses_data = data.get('courses', {})
+        
+        if 'existing' in courses_data:
+            # Use existing course IDs
+            course_ids = courses_data['existing']
+        elif 'new' in courses_data:
+            # Add new courses
+            for course in courses_data['new']:
+                course_level = 2 if course.get('parent_course_id') else 1
+                db.execute('''INSERT INTO courses (course_code, course_name, instructor, schedule, 
+                             parent_course_id, course_level, min_attendance_percentage)
+                             VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                          (course['course_code'], course['course_name'], course['instructor'], 
+                           course.get('schedule', ''), course.get('parent_course_id'), 
+                           course_level, course.get('min_attendance_percentage', 75.0)))
+                courses_added += 1
+            
+            # Get new course IDs
+            for course in courses_data['new']:
+                result = db.execute('SELECT id FROM courses WHERE course_code = ?', (course['course_code'],)).fetchone()
+                if result:
+                    course_ids.append(result['id'])
+        
+        # Handle students - either existing IDs or new student data
+        student_ids = []
+        students_data = data.get('students', {})
+        
+        if 'existing' in students_data:
+            # Use existing student IDs
+            student_ids = students_data['existing']
+        elif 'new' in students_data:
+            # First, create any new batches that don't exist
+            batch_ids_map = {}
+            for student in students_data['new']:
+                batch_name = student.get('batch_name')
+                if batch_name and batch_name not in batch_ids_map:
+                    # Check if batch exists
+                    existing_batch = db.execute('SELECT id FROM batches WHERE batch_name = ?', (batch_name,)).fetchone()
+                    if existing_batch:
+                        batch_ids_map[batch_name] = existing_batch['id']
+                    else:
+                        # Create new batch
+                        from datetime import datetime
+                        current_year = datetime.now().year
+                        cursor = db.execute('''INSERT INTO batches (batch_name, batch_year, description)
+                                             VALUES (?, ?, ?)''',
+                                          (batch_name, current_year, f'Auto-created batch for {batch_name}'))
+                        # Get the ID of the newly created batch
+                        batch_ids_map[batch_name] = cursor.lastrowid
+                        batches_created += 1
+                        app.logger.info(f"Created new batch: {batch_name} with ID: {cursor.lastrowid}")
+            
+            # Now create students with proper batch_id
+            for student in students_data['new']:
+                batch_id = None
+                batch_name = student.get('batch_name')
+                if batch_name and batch_name in batch_ids_map:
+                    batch_id = batch_ids_map[batch_name]
+                
+                app.logger.info(f"Creating student {student['student_id']} with batch_name='{batch_name}' and batch_id={batch_id}")
+                
+                db.execute('''INSERT INTO students (student_id, name, email, batch_id)
+                             VALUES (?, ?, ?, ?)''',
+                          (student['student_id'], student['name'], student['email'], batch_id))
+                students_added += 1
+            
+            # Get new student IDs
+            for student in students_data['new']:
+                result = db.execute('SELECT id FROM students WHERE student_id = ?', (student['student_id'],)).fetchone()
+                if result:
+                    student_ids.append(result['id'])
+        
+        # Create enrollments
+        for student_id in student_ids:
+            for course_id in course_ids:
+                course = db.execute('SELECT parent_course_id FROM courses WHERE id = ?', (course_id,)).fetchone()
+                if course and course['parent_course_id']:  # Only sub-courses
+                    existing = db.execute('SELECT id FROM enrollments WHERE student_id = ? AND course_id = ?',
+                                        (student_id, course_id)).fetchone()
+                    if not existing:
+                        db.execute('''INSERT INTO enrollments (student_id, course_id, enrollment_type, is_active)
+                                     VALUES (?, ?, 'direct', 1)''', (student_id, course_id))
+                        enrollments_added += 1
+        
+        db.execute('COMMIT')
+        
+        # Log successful bulk upload
+        log_user_action("BULK_UPLOAD", f"Finalized bulk upload: {courses_added} courses, {students_added} students, {enrollments_added} enrollments, {batches_created} batches", "BULK_UPLOAD", "")
+        
+        return jsonify({
+            'success': True,
+            'enrollment_count': enrollments_added,
+            'summary': f"Added {courses_added} courses, {students_added} students, {enrollments_added} enrollments, {batches_created} batches"
+        })
+        
+    except Exception as e:
+        db.execute('ROLLBACK')
+        log_user_action("BULK_UPLOAD", f"Failed to finalize bulk upload: {str(e)}", "BULK_UPLOAD", "", "FAILED")
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/courses')
+@admin_required
+def api_courses():
+    """Get all courses for selection"""
+    db = get_db()
+    courses = db.execute('''
+        SELECT id, course_code, course_name, instructor, 
+               COALESCE(schedule, '') as schedule 
+        FROM courses 
+        WHERE is_active = 1 AND parent_course_id IS NOT NULL
+        ORDER BY course_name
+    ''').fetchall()
+    return jsonify([dict(course) for course in courses])
+
+@app.route('/api/students')  
+@admin_required
+def api_students():
+    """Get all students for selection with batch information"""
+    db = get_db()
+    students = db.execute('''
+        SELECT s.id, s.student_id, s.name, s.email, 
+               b.batch_name
+        FROM students s 
+        LEFT JOIN batches b ON s.batch_id = b.id 
+        ORDER BY b.batch_name, s.name
+    ''').fetchall()
+    return jsonify([dict(student) for student in students])
+
 @app.route('/reports')
 @attendance_taker_required
 def reports():
@@ -2143,8 +3228,11 @@ def unenroll_student(enrollment_id):
     db = get_db()
     
     # Get enrollment details
-    enrollment = db.execute(
-        'SELECT * FROM enrollments WHERE id = ?', (enrollment_id,)
+    enrollment = db.execute('''
+        SELECT e.*, s.name as student_name, s.student_id, c.course_name FROM enrollments e 
+         JOIN students s ON e.student_id = s.id 
+         JOIN courses c ON e.course_id = c.id 
+         WHERE e.id = ?''', (enrollment_id,)
     ).fetchone()
     
     if not enrollment:
@@ -2154,6 +3242,9 @@ def unenroll_student(enrollment_id):
     # Delete enrollment
     db.execute('DELETE FROM enrollments WHERE id = ?', (enrollment_id,))
     db.commit()
+    
+    # Log unenrollment
+    log_user_action("UNENROLL", f"Unenrolled {enrollment['student_name']} ({enrollment['student_id']}) from {enrollment['course_name']}", "ENROLLMENT", enrollment_id)
     
     flash('Student unenrolled successfully!', 'success')
     return redirect(url_for('enroll'))
@@ -2191,9 +3282,158 @@ def run_system_check():
         app.logger.error(f'System check failed: {str(e)}')
         return jsonify({
             'success': False,
-            'error': str(e),
+        'error': str(e),
             'message': 'System check failed'
         })
 
+# Face Recognition API Endpoints
+@app.route('/api/process_frame', methods=['POST'])
+@attendance_taker_required
+def process_frame():
+    """Process a frame from webcam and recognize faces"""
+    try:
+        data = request.get_json()
+        
+        if not data or 'frame' not in data:
+            return jsonify({'success': False, 'error': 'No frame data provided'})
+        
+        # Decode base64 frame
+        frame_data = data['frame'].split(',')[1]  # Remove data:image/jpeg;base64,
+        frame_bytes = base64.b64decode(frame_data)
+        
+        # Convert to numpy array
+        nparr = np.frombuffer(frame_bytes, np.uint8)
+        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        if frame is None:
+            return jsonify({'success': False, 'error': 'Invalid frame data'})
+        
+        # Initialize face recognizer if not already done
+        global face_recognizer
+        if face_recognizer is None:
+            init_face_recognizer()
+        
+        # Recognize faces
+        recognized_students, face_locations = face_recognizer.recognize_faces(frame)
+        
+        # Format response
+        result = {
+            'success': True,
+            'faces_detected': len(face_locations),
+            'recognized_students': recognized_students,
+            'face_locations': face_locations
+        }
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        app.logger.error(f"Error processing frame: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/mark_face_attendance', methods=['POST'])
+@attendance_taker_required
+def mark_face_attendance():
+    """Mark attendance for recognized faces"""
+    try:
+        data = request.get_json()
+        course_id = data.get('course_id')
+        student_ids = data.get('student_ids', [])
+        
+        if not course_id or not student_ids:
+            return jsonify({'success': False, 'error': 'Missing course_id or student_ids'})
+        
+        db = get_db()
+        from datetime import datetime
+        now = datetime.now()
+        today = now.date().isoformat()
+        now_time = now.time().strftime('%H:%M:%S')
+        
+        # Get course info
+        course = db.execute('SELECT * FROM courses WHERE id = ?', (course_id,)).fetchone()
+        if not course:
+            return jsonify({'success': False, 'error': 'Course not found'})
+        
+        marked_students = []
+        already_marked = []
+        
+        for student_id in student_ids:
+            # Get student info
+            student = db.execute('SELECT * FROM students WHERE id = ?', (student_id,)).fetchone()
+            if not student:
+                continue
+            
+            # Check if already marked today
+            existing = db.execute(
+                'SELECT id FROM attendance WHERE student_id = ? AND course_id = ? AND date = ?',
+                (student_id, course_id, today)
+            ).fetchone()
+            
+            if not existing:
+                # Mark attendance using the aggregation function
+                mark_attendance_with_aggregation(
+                    student_id=int(student_id),
+                    course_id=int(course_id),
+                    date=now.date(),
+                    time=now_time,
+                    status='Present'
+                )
+                marked_students.append({
+                    'id': student['id'],
+                    'name': student['name'],
+                    'student_id': student['student_id']
+                })
+            else:
+                already_marked.append({
+                    'id': student['id'],
+                    'name': student['name'],
+                    'student_id': student['student_id']
+                })
+        
+        # Log face recognition attendance
+        log_user_action("FACE_RECOGNITION", f"Face recognition attendance marked for {len(marked_students)} students in course {course_id}", "ATTENDANCE", course_id)
+        
+        return jsonify({
+            'success': True,
+            'marked_students': marked_students,
+            'already_marked': already_marked,
+            'message': f'Attendance marked for {len(marked_students)} students via face recognition'
+        })
+        
+    except Exception as e:
+        app.logger.error(f"Error marking face attendance: {str(e)}")
+        log_user_action("FACE_RECOGNITION", f"Failed to mark face recognition attendance for course {course_id}: {str(e)}", "ATTENDANCE", course_id, "FAILED")
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/reload_face_recognizer', methods=['POST'])
+@admin_required
+def reload_face_recognizer():
+    """Reload face recognizer (useful after adding new student photos)"""
+    try:
+        global face_recognizer
+        face_recognizer = FaceRecognizer()
+        
+        # Log face recognizer reload
+        log_user_action("RELOAD", "Face recognizer reloaded", "SYSTEM", "face_recognizer")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Face recognizer reloaded successfully',
+            'loaded_faces': len(face_recognizer.known_face_encodings)
+        })
+        
+    except Exception as e:
+        app.logger.error(f"Error reloading face recognizer: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)})
+
+# Initialize the application
 if __name__ == '__main__':
-    app.run(debug=True)
+    with app.app_context():
+        init_db()
+        # Initialize face recognizer
+        try:
+            init_face_recognizer()
+            app.logger.info("Face recognizer initialized successfully")
+        except Exception as e:
+            app.logger.error(f"Failed to initialize face recognizer: {str(e)}")
+    
+    app.run(debug=True, host='0.0.0.0', port=5000)
