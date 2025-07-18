@@ -36,7 +36,7 @@
                     <div class="mb-3">
                         <label class="form-label">Current Photo</label>
                         <div>
-                            <img src="{{ url_for('static', filename=student.photo_path) }}" 
+                            <img src="{{ url_for('static', filename='student_photos/' + student.photo_path) }}" 
                                  alt="Current Photo" class="img-thumbnail" style="max-width: 200px; max-height: 200px;">
                         </div>
                     </div>

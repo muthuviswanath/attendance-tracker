@@ -35,8 +35,9 @@
                             <tr>
                                 <td>
                                     {% if student.photo_path %}
-                                        <img src="{{ url_for('static', filename=student.photo_path) }}" 
-                                             alt="Student Photo" class="rounded-circle" width="50" height="50">
+                                        <img src="{{ url_for('static', filename='student_photos/' + student.photo_path) }}" 
+                                             alt="Student Photo" class="rounded-circle" width="50" height="50"
+                                             style="object-fit: cover;">
                                     {% else %}
                                         <div class="bg-secondary rounded-circle d-flex align-items-center justify-content-center" 
                                              style="width: 50px; height: 50px;">
@@ -55,7 +56,7 @@
                                     {% endif %}
                                 </td>
                                 <td>
-                                    {% if student.face_encoding %}
+                                    {% if student.photo_path %}
                                         <span class="badge bg-success">
                                             <i class="fas fa-check me-1"></i>Yes
                                         </span>

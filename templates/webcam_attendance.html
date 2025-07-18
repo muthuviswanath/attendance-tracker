@@ -198,14 +198,14 @@ function captureAndRecognize() {
     const imageData = canvas.toDataURL('image/jpeg', 0.8);
     
     // Send to server for recognition
-    fetch('/process_frame', {
+    fetch('/api/recognize_faces', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
         },
         body: JSON.stringify({
             course_id: courseId,
-            frame: imageData
+            image: imageData
         })
     })
     .then(response => response.json())

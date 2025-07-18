@@ -626,128 +626,248 @@ def enroll_student_direct(student_id, course_id):
     db.commit()
     return True
 
-# Face Recognition Class (Simplified version using OpenCV)
-# Face Recognition Class (using OpenCV with template matching)
+# Enhanced Face Recognition Class using LBPH (Local Binary Pattern Histogram)
 class FaceRecognizer:
     def __init__(self):
-        self.known_face_templates = []
+        """Initialize the face recognizer using OpenCV's LBPH Face Recognizer"""
+        self.face_recognizer = cv2.face.LBPHFaceRecognizer_create(
+            radius=1,       # LBPH radius
+            neighbors=8,    # LBPH neighbors  
+            grid_x=8,       # Number of cells in horizontal direction
+            grid_y=8,       # Number of cells in vertical direction
+            threshold=80.0  # Threshold for recognition
+        )
+        self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
         self.known_face_names = []
         self.known_face_student_ids = []
-        self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+        self.is_trained = False
+        
+        # Initialize with existing photos
         self.load_known_faces()
     
+    def preprocess_face_image(self, image):
+        """Preprocess face image for better recognition accuracy"""
+        # Convert to grayscale if needed
+        if len(image.shape) == 3:
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = image.copy()
+        
+        # Apply histogram equalization for better lighting
+        gray = cv2.equalizeHist(gray)
+        
+        # Apply Gaussian blur to reduce noise
+        gray = cv2.GaussianBlur(gray, (5, 5), 0)
+        
+        return gray
+    
+    def extract_face_from_image(self, image_path):
+        """
+        Extract the largest face from an image file.
+        Returns (face_image, success_message) or (None, error_message)
+        """
+        try:
+            # Load image
+            image = cv2.imread(image_path)
+            if image is None:
+                return None, "Could not load image file"
+            
+            # Preprocess image
+            gray = self.preprocess_face_image(image)
+            
+            # Detect faces
+            faces = self.face_cascade.detectMultiScale(
+                gray,
+                scaleFactor=1.1,
+                minNeighbors=5,
+                minSize=(80, 80),
+                maxSize=(500, 500)
+            )
+            
+            if len(faces) == 0:
+                return None, "No faces detected in image"
+            elif len(faces) > 1:
+                return None, f"Multiple faces detected ({len(faces)}). Please use a photo with only one person"
+            
+            # Extract the face
+            x, y, w, h = faces[0]
+            face_image = gray[y:y+h, x:x+w]
+            
+            # Resize to standard size for consistency
+            face_image = cv2.resize(face_image, (200, 200))
+            
+            return face_image, "Face extracted successfully"
+            
+        except Exception as e:
+            return None, f"Error processing image: {str(e)}"
+    
     def load_known_faces(self):
-        """Load all student face templates from database"""
+        """Load all student face images and train the recognizer"""
         app.logger.info("Loading known faces for recognition...")
+        
+        # Reset data
+        self.known_face_names = []
+        self.known_face_student_ids = []
+        faces = []
+        labels = []
+        
         db = get_db()
         students = db.execute(
             'SELECT id, student_id, name, photo_path FROM students WHERE photo_path IS NOT NULL'
         ).fetchall()
         
-        self.known_face_templates = []
-        self.known_face_names = []
-        self.known_face_student_ids = []
-        
         loaded_count = 0
         
-        for student in students:
+        for idx, student in enumerate(students):
             if student['photo_path']:
                 # Construct full path to photo
                 photo_path = os.path.join(app.config['UPLOAD_FOLDER'], student['photo_path'])
                 
                 if os.path.exists(photo_path):
-                    try:
-                        # Load image
-                        image = cv2.imread(photo_path)
-                        if image is not None:
-                            # Convert to grayscale
-                            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-                            
-                            # Detect faces in the student photo
-                            faces = self.face_cascade.detectMultiScale(gray, 1.1, 4)
-                            
-                            if len(faces) > 0:
-                                # Use the first (largest) face found
-                                (x, y, w, h) = faces[0]
-                                face_template = gray[y:y+h, x:x+w]
-                                
-                                # Resize to standard size for better matching
-                                face_template = cv2.resize(face_template, (100, 100))
-                                
-                                self.known_face_templates.append(face_template)
-                                self.known_face_names.append(student['name'])
-                                self.known_face_student_ids.append(student['id'])
-                                loaded_count += 1
-                                app.logger.info(f"Loaded face template for: {student['name']} ({student['student_id']})")
-                            else:
-                                app.logger.warning(f"No face found in photo for student: {student['name']} ({student['student_id']})")
-                        else:
-                            app.logger.warning(f"Could not load image for student: {student['name']} - {photo_path}")
-                    except Exception as e:
-                        app.logger.error(f"Error loading face template for {student['name']}: {str(e)}")
+                    face_image, message = self.extract_face_from_image(photo_path)
+                    
+                    if face_image is not None:
+                        faces.append(face_image)
+                        labels.append(idx)
+                        self.known_face_names.append(student['name'])
+                        self.known_face_student_ids.append(student['id'])
+                        loaded_count += 1
+                        app.logger.info(f"[SUCCESS] Loaded face for: {student['name']} ({student['student_id']})")
+                    else:
+                        app.logger.warning(f"[FAILED] {student['name']} ({student['student_id']}): {message}")
                 else:
-                    app.logger.warning(f"Photo file not found for student: {student['name']} - {photo_path}")
+                    app.logger.warning(f"[NOT_FOUND] Photo file missing: {photo_path}")
         
-        app.logger.info(f"Total face templates loaded: {loaded_count}")
+        # Train the recognizer if we have faces
+        if len(faces) > 0:
+            try:
+                self.face_recognizer.train(faces, np.array(labels))
+                self.is_trained = True
+                app.logger.info(f"[TRAINED] Face recognizer trained with {loaded_count} faces")
+            except Exception as e:
+                app.logger.error(f"[TRAIN_ERROR] Failed to train recognizer: {str(e)}")
+                self.is_trained = False
+        else:
+            self.is_trained = False
+            app.logger.warning("[NO_DATA] No valid face data found")
+        
+        app.logger.info(f"[SUMMARY] Face recognizer ready: {loaded_count} faces loaded")
     
     def recognize_faces(self, frame):
-        """Detect and recognize faces in the given frame"""
+        """
+        Detect and recognize faces in the given frame.
+        Returns (recognized_students, face_locations)
+        """
         app.logger.info("Starting face recognition...")
         
-        # Convert to grayscale
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        if not self.is_trained:
+            app.logger.warning("Face recognizer not trained - no student photos available")
+            return [], []
         
-        # Detect faces
-        faces = self.face_cascade.detectMultiScale(gray, 1.1, 4)
+        # Preprocess frame
+        gray = self.preprocess_face_image(frame)
+        
+        # Detect faces in frame
+        faces = self.face_cascade.detectMultiScale(
+            gray,
+            scaleFactor=1.1,
+            minNeighbors=5,
+            minSize=(80, 80)
+        )
         
         recognized_students = []
         face_locations = []
         
-        app.logger.info(f"Detected {len(faces)} faces")
+        app.logger.info(f"Detected {len(faces)} faces in frame")
         
         for i, (x, y, w, h) in enumerate(faces):
-            # Extract face from frame
+            # Extract and preprocess face
             face_roi = gray[y:y+h, x:x+w]
-            face_roi = cv2.resize(face_roi, (100, 100))
+            face_roi = cv2.resize(face_roi, (200, 200))
             
-            # Convert to face_locations format for consistency
+            # Convert face location format for consistency
             face_locations.append((y, x+w, y+h, x))
             
-            best_match = None
-            best_score = float('inf')
-            
-            # Compare with known face templates
-            for j, template in enumerate(self.known_face_templates):
-                try:
-                    # Use template matching
-                    result = cv2.matchTemplate(face_roi, template, cv2.TM_SQDIFF_NORMED)
-                    _, min_val, _, _ = cv2.minMaxLoc(result)
-                    
-                    if min_val < best_score:
-                        best_score = min_val
-                        best_match = j
-                        
-                except Exception as e:
-                    app.logger.error(f"Error in template matching: {str(e)}")
-                    continue
-            
-            # If we found a good match (low difference score)
-            if best_match is not None and best_score < 0.5:  # Threshold for recognition
-                student_id = self.known_face_student_ids[best_match]
-                student_name = self.known_face_names[best_match]
-                confidence = 1 - best_score  # Convert to confidence score
+            try:
+                # Recognize the face
+                label, confidence = self.face_recognizer.predict(face_roi)
                 
-                recognized_students.append({
-                    'student_id': student_id,
-                    'name': student_name,
-                    'confidence': confidence
-                })
-                app.logger.info(f"Recognized student: {student_name} (ID: {student_id}) with confidence: {confidence:.2f}")
-            else:
-                app.logger.info(f"Face {i+1} detected but not recognized (best score: {best_score:.3f})")
+                # LBPH gives lower confidence for better matches
+                # Typical good matches are below 80
+                confidence_threshold = 85
+                
+                if confidence < confidence_threshold and label < len(self.known_face_names):
+                    student_id = self.known_face_student_ids[label]
+                    student_name = self.known_face_names[label]
+                    
+                    # Convert to percentage (higher is better)
+                    confidence_percent = max(0, (100 - confidence) / 100 * 100)
+                    
+                    recognized_students.append({
+                        'student_id': student_id,
+                        'name': student_name,
+                        'confidence': confidence_percent
+                    })
+                    app.logger.info(f"[RECOGNIZED] {student_name} (ID: {student_id}) - Raw confidence: {confidence:.1f}")
+                else:
+                    app.logger.info(f"[UNKNOWN] Face {i+1} - confidence too low: {confidence:.1f}")
+                    
+            except Exception as e:
+                app.logger.error(f"[ERROR] Face recognition failed for face {i+1}: {str(e)}")
         
-        app.logger.info(f"Final recognized students: {len(recognized_students)}")
+        app.logger.info(f"Final result: {len(recognized_students)} students recognized")
         return recognized_students, face_locations
+    
+    def validate_photo_for_recognition(self, image_path):
+        """
+        Validate if a photo is suitable for face recognition.
+        Returns (is_valid, message, face_count)
+        """
+        try:
+            if not os.path.exists(image_path):
+                return False, "Photo file not found", 0
+            
+            # Load image
+            image = cv2.imread(image_path)
+            if image is None:
+                return False, "Could not load image file. Please ensure it's a valid image format (JPG, PNG, etc.)", 0
+            
+            # Check image size
+            height, width = image.shape[:2]
+            if width < 200 or height < 200:
+                return False, f"Image too small ({width}x{height}). Please use at least 200x200 pixels", 0
+            
+            # Preprocess and detect faces
+            gray = self.preprocess_face_image(image)
+            faces = self.face_cascade.detectMultiScale(
+                gray,
+                scaleFactor=1.1,
+                minNeighbors=5,
+                minSize=(80, 80),
+                maxSize=(500, 500)
+            )
+            
+            face_count = len(faces)
+            
+            if face_count == 0:
+                return False, "No faces detected. Please use a clear photo with a visible face, good lighting, and no obstructions", 0
+            elif face_count > 1:
+                return False, f"Multiple faces detected ({face_count}). Please use a photo with only one person", face_count
+            else:
+                # Check face size
+                x, y, w, h = faces[0]
+                face_area = w * h
+                image_area = width * height
+                face_ratio = face_area / image_area
+                
+                if face_ratio < 0.05:  # Face is less than 5% of image
+                    return False, "Face is too small in the image. Please use a closer photo where the face is more prominent", 1
+                
+                return True, "Perfect! Photo is suitable for face recognition", 1
+                
+        except Exception as e:
+            app.logger.error(f"Error validating photo {image_path}: {str(e)}")
+            return False, f"Error processing photo: {str(e)}", 0
 
 # Initialize face recognizer within app context
 face_recognizer = None
@@ -864,7 +984,6 @@ def add_student():
         
         # Handle photo upload
         photo_path = None
-        face_encoding = None
         
         if 'photo' in request.files:
             file = request.files['photo']
@@ -872,22 +991,29 @@ def add_student():
                 filename = secure_filename(f"{student_id}_{file.filename}")
                 full_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
                 file.save(full_path)
-                # Store relative path from static folder
-                photo_path = f"student_photos/{filename}"
-                app.logger.info(f'Photo uploaded for student {student_id}: {filename}')
                 
-                # For demo purposes, just mark that face encoding exists
-                try:
-                    face_encoding = pickle.dumps([1, 2, 3])  # Dummy encoding for demo
-                except Exception as e:
-                    app.logger.error(f'Error processing photo for student {student_id}: {str(e)}')
-                    flash(f'Error processing photo: {str(e)}', 'error')
+                # Validate photo for face recognition
+                is_valid, message, face_count = face_recognizer.validate_photo_for_recognition(full_path)
+                
+                if not is_valid:
+                    # Remove the uploaded file
+                    try:
+                        os.remove(full_path)
+                    except:
+                        pass
+                    app.logger.warning(f'Invalid photo for student {student_id}: {message}')
+                    flash(f'Photo validation failed: {message}', 'error')
                     return redirect(url_for('add_student'))
+                
+                # Store relative path from static folder
+                photo_path = filename
+                app.logger.info(f'Photo uploaded and validated for student {student_id}: {filename}')
+                flash(f'Photo validated successfully! {message}', 'success')
         
         # Create new student with batch
         db.execute(
-            'INSERT INTO students (student_id, name, email, batch_id, photo_path, face_encoding) VALUES (?, ?, ?, ?, ?, ?)',
-            (student_id, name, email, batch_id if batch_id else None, photo_path, face_encoding)
+            'INSERT INTO students (student_id, name, email, batch_id, photo_path) VALUES (?, ?, ?, ?, ?)',
+            (student_id, name, email, batch_id if batch_id else None, photo_path)
         )
         db.commit()
         
@@ -934,37 +1060,45 @@ def edit_student(student_id):
         
         # Handle photo upload
         photo_path = student['photo_path']  # Keep existing photo by default
-        face_encoding = student['face_encoding']  # Keep existing encoding
         
         if 'photo' in request.files:
             file = request.files['photo']
             if file.filename != '':
+                filename = secure_filename(f"{student_id_new}_{file.filename}")
+                full_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                file.save(full_path)
+                
+                # Validate photo for face recognition
+                is_valid, message, face_count = face_recognizer.validate_photo_for_recognition(full_path)
+                
+                if not is_valid:
+                    # Remove the uploaded file
+                    try:
+                        os.remove(full_path)
+                    except:
+                        pass
+                    app.logger.warning(f'Invalid photo for student {student_id_new}: {message}')
+                    flash(f'Photo validation failed: {message}', 'error')
+                    return redirect(url_for('edit_student', student_id=student_id))
+                
                 # Delete old photo if it exists
                 if student['photo_path']:
-                    old_photo_path = os.path.join('static', student['photo_path'])
+                    old_photo_path = os.path.join(app.config['UPLOAD_FOLDER'], student['photo_path'])
                     if os.path.exists(old_photo_path):
                         try:
                             os.remove(old_photo_path)
                         except:
                             pass
                 
-                filename = secure_filename(f"{student_id_new}_{file.filename}")
-                full_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-                file.save(full_path)
-                # Store relative path from static folder
-                photo_path = f"student_photos/{filename}"
-                
-                # Generate new face encoding
-                try:
-                    face_encoding = pickle.dumps([1, 2, 3])  # Dummy encoding for demo
-                except Exception as e:
-                    flash(f'Error processing photo: {str(e)}', 'error')
-                    return redirect(url_for('edit_student', student_id=student_id))
+                # Store new photo filename
+                photo_path = filename
+                app.logger.info(f'Photo updated and validated for student {student_id_new}: {filename}')
+                flash(f'Photo validated successfully! {message}', 'success')
         
         # Update student
         db.execute(
-            'UPDATE students SET student_id = ?, name = ?, email = ?, photo_path = ?, face_encoding = ? WHERE id = ?',
-            (student_id_new, name, email, photo_path, face_encoding, student_id)
+            'UPDATE students SET student_id = ?, name = ?, email = ?, photo_path = ? WHERE id = ?',
+            (student_id_new, name, email, photo_path, student_id)
         )
         db.commit()
         
@@ -993,13 +1127,12 @@ def delete_student(student_id):
     
     # Delete photo file if it exists
     if student['photo_path']:
-        photo_path = os.path.join('static', student['photo_path'])
+        photo_path = os.path.join(app.config['UPLOAD_FOLDER'], student['photo_path'])
         if os.path.exists(photo_path):
             try:
                 os.remove(photo_path)
             except:
                 pass
-            pass
     
     # Delete related records first (due to foreign key constraints)
     db.execute('DELETE FROM attendance WHERE student_id = ?', (student_id,))
@@ -2054,7 +2187,7 @@ def quick_checkin_submit():
         
         # Get student info for logging
         db = get_db()
-        student = db.execute('SELECT name, student_id FROM students WHERE id = ?', (student_id,)).fetchone()
+        student = db.execute('SELECT id, name, student_id FROM students WHERE student_id = ?', (student_id,)).fetchone()
         course = db.execute('SELECT course_name FROM courses WHERE id = ?', (course_id,)).fetchone()
         
         if not student:
@@ -2073,7 +2206,7 @@ def quick_checkin_submit():
         today = now.date().isoformat()
         existing = db.execute(
             'SELECT id FROM attendance WHERE student_id = ? AND course_id = ? AND date = ?',
-            (student_id, course_id, today)
+            (student['id'], course_id, today)
         ).fetchone()
         
         if existing:
@@ -2084,7 +2217,7 @@ def quick_checkin_submit():
         
         # Mark attendance
         mark_attendance_with_aggregation(
-            student_id=int(student_id),
+            student_id=int(student['id']),
             course_id=int(course_id),
             date=now.date(),
             time=now.time().strftime('%H:%M:%S'),
@@ -2092,7 +2225,7 @@ def quick_checkin_submit():
         )
         
         # Log quick checkin
-        log_user_action("QUICK_CHECKIN", f"Quick checkin for {student['name']} ({student['student_id']}) in {course['course_name']}", "ATTENDANCE", student_id)
+        log_user_action("QUICK_CHECKIN", f"Quick checkin for {student['name']} ({student['student_id']}) in {course['course_name']}", "ATTENDANCE", student['id'])
         
         return jsonify({
             'success': True,
@@ -2277,11 +2410,15 @@ def manual_attendance_submit():
 @app.route('/api/recognize_faces', methods=['POST'])
 @attendance_taker_required
 def api_recognize_faces():
-    """API endpoint to recognize faces from webcam frame"""
+    """API endpoint to recognize faces from webcam frame and mark attendance"""
     try:
         data = request.get_json()
         if not data or 'image' not in data:
             return jsonify({'success': False, 'error': 'No image data provided'})
+        
+        course_id = data.get('course_id')
+        if not course_id:
+            return jsonify({'success': False, 'error': 'Course ID is required'})
         
         # Decode base64 image
         image_data = data['image'].split(',')[1]  # Remove data:image/jpeg;base64, part
@@ -2300,13 +2437,53 @@ def api_recognize_faces():
             init_face_recognizer()
         
         # Recognize faces
-        recognized_students, face_locations = face_recognizer.recognize_faces(frame)
+        recognized_students_data, face_locations = face_recognizer.recognize_faces(frame)
         
-        app.logger.info(f"Face recognition API: Found {len(recognized_students)} recognized students")
+        app.logger.info(f"Face recognition API: Found {len(recognized_students_data)} recognized students")
+        
+        # Extract student IDs and names from recognition results
+        recognized_students = []
+        marked_students = []
+        
+        if recognized_students_data:
+            from datetime import datetime
+            
+            db = get_db()
+            now = datetime.now()
+            today = now.date().isoformat()
+            current_time = now.time().strftime('%H:%M:%S')
+            
+            for student_data in recognized_students_data:
+                student_id = student_data['student_id']
+                student_name = student_data['name']
+                recognized_students.append(student_name)
+                
+                # Check if already marked today
+                existing = db.execute(
+                    'SELECT id FROM attendance WHERE student_id = ? AND course_id = ? AND date = ?',
+                    (student_id, course_id, today)
+                ).fetchone()
+                
+                if not existing:
+                    # Mark attendance using the aggregation function
+                    mark_attendance_with_aggregation(
+                        student_id=student_id,
+                        course_id=int(course_id),
+                        date=now.date(),
+                        time=current_time,
+                        status='Present'
+                    )
+                    marked_students.append(student_name)
+                    app.logger.info(f"Webcam attendance marked for: {student_name}")
+        
+        # Log webcam recognition attempt
+        if recognized_students:
+            log_user_action("WEBCAM_RECOGNITION", f"Recognized {len(recognized_students)} students, marked {len(marked_students)} in course {course_id}", "ATTENDANCE", course_id)
         
         return jsonify({
             'success': True,
             'recognized_students': recognized_students,
+            'marked_students': marked_students,
             'face_count': len(face_locations)
         })
         
@@ -3282,127 +3459,9 @@ def run_system_check():
         app.logger.error(f'System check failed: {str(e)}')
         return jsonify({
             'success': False,
-        'error': str(e),
+            'error': str(e),
             'message': 'System check failed'
         })
-
-# Face Recognition API Endpoints
-@app.route('/api/process_frame', methods=['POST'])
-@attendance_taker_required
-def process_frame():
-    """Process a frame from webcam and recognize faces"""
-    try:
-        data = request.get_json()
-        
-        if not data or 'frame' not in data:
-            return jsonify({'success': False, 'error': 'No frame data provided'})
-        
-        # Decode base64 frame
-        frame_data = data['frame'].split(',')[1]  # Remove data:image/jpeg;base64,
-        frame_bytes = base64.b64decode(frame_data)
-        
-        # Convert to numpy array
-        nparr = np.frombuffer(frame_bytes, np.uint8)
-        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        
-        if frame is None:
-            return jsonify({'success': False, 'error': 'Invalid frame data'})
-        
-        # Initialize face recognizer if not already done
-        global face_recognizer
-        if face_recognizer is None:
-            init_face_recognizer()
-        
-        # Recognize faces
-        recognized_students, face_locations = face_recognizer.recognize_faces(frame)
-        
-        # Format response
-        result = {
-            'success': True,
-            'faces_detected': len(face_locations),
-            'recognized_students': recognized_students,
-            'face_locations': face_locations
-        }
-        
-        return jsonify(result)
-        
-    except Exception as e:
-        app.logger.error(f"Error processing frame: {str(e)}")
-        return jsonify({'success': False, 'error': str(e)})
-
-@app.route('/api/mark_face_attendance', methods=['POST'])
-@attendance_taker_required
-def mark_face_attendance():
-    """Mark attendance for recognized faces"""
-    try:
-        data = request.get_json()
-        course_id = data.get('course_id')
-        student_ids = data.get('student_ids', [])
-        
-        if not course_id or not student_ids:
-            return jsonify({'success': False, 'error': 'Missing course_id or student_ids'})
-        
-        db = get_db()
-        from datetime import datetime
-        now = datetime.now()
-        today = now.date().isoformat()
-        now_time = now.time().strftime('%H:%M:%S')
-        
-        # Get course info
-        course = db.execute('SELECT * FROM courses WHERE id = ?', (course_id,)).fetchone()
-        if not course:
-            return jsonify({'success': False, 'error': 'Course not found'})
-        
-        marked_students = []
-        already_marked = []
-        
-        for student_id in student_ids:
-            # Get student info
-            student = db.execute('SELECT * FROM students WHERE id = ?', (student_id,)).fetchone()
-            if not student:
-                continue
-            
-            # Check if already marked today
-            existing = db.execute(
-                'SELECT id FROM attendance WHERE student_id = ? AND course_id = ? AND date = ?',
-                (student_id, course_id, today)
-            ).fetchone()
-            
-            if not existing:
-                # Mark attendance using the aggregation function
-                mark_attendance_with_aggregation(
-                    student_id=int(student_id),
-                    course_id=int(course_id),
-                    date=now.date(),
-                    time=now_time,
-                    status='Present'
-                )
-                marked_students.append({
-                    'id': student['id'],
-                    'name': student['name'],
-                    'student_id': student['student_id']
-                })
-            else:
-                already_marked.append({
-                    'id': student['id'],
-                    'name': student['name'],
-                    'student_id': student['student_id']
-                })
-        
-        # Log face recognition attendance
-        log_user_action("FACE_RECOGNITION", f"Face recognition attendance marked for {len(marked_students)} students in course {course_id}", "ATTENDANCE", course_id)
-        
-        return jsonify({
-            'success': True,
-            'marked_students': marked_students,
-            'already_marked': already_marked,
-            'message': f'Attendance marked for {len(marked_students)} students via face recognition'
-        })
-        
-    except Exception as e:
-        app.logger.error(f"Error marking face attendance: {str(e)}")
-        log_user_action("FACE_RECOGNITION", f"Failed to mark face recognition attendance for course {course_id}: {str(e)}", "ATTENDANCE", course_id, "FAILED")
-        return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/api/reload_face_recognizer', methods=['POST'])
 @admin_required
@@ -3425,6 +3484,51 @@ def reload_face_recognizer():
         app.logger.error(f"Error reloading face recognizer: {str(e)}")
         return jsonify({'success': False, 'error': str(e)})
 
+@app.route('/api/validate_photo', methods=['POST'])
+@admin_required
+def api_validate_photo():
+    """API endpoint to validate uploaded photo for face recognition"""
+    try:
+        if 'photo' not in request.files:
+            return jsonify({'success': False, 'error': 'No photo provided'})
+        
+        file = request.files['photo']
+        if file.filename == '':
+            return jsonify({'success': False, 'error': 'No photo selected'})
+        
+        # Save temporary file
+        import tempfile
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as temp_file:
+            file.save(temp_file.name)
+            temp_path = temp_file.name
+        
+        try:
+            # Initialize face recognizer if not already done
+            global face_recognizer
+            if face_recognizer is None:
+                init_face_recognizer()
+            
+            # Validate photo
+            is_valid, message, face_count = face_recognizer.validate_photo_for_recognition(temp_path)
+            
+            return jsonify({
+                'success': True,
+                'is_valid': is_valid,
+                'message': message,
+                'face_count': face_count
+            })
+            
+        finally:
+            # Clean up temporary file
+            try:
+                os.remove(temp_path)
+            except:
+                pass
+            
+    except Exception as e:
+        app.logger.error(f"Photo validation API error: {str(e)}")
+        return jsonify({'success': False, 'error': f'Validation failed: {str(e)}'})
+        
 # Initialize the application
 if __name__ == '__main__':
     with app.app_context():

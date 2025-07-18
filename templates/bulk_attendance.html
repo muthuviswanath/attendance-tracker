@@ -48,8 +48,8 @@
                             <tr data-student-id="{{ student.id }}">
                                 <td>
                                     {% if student.photo_path %}
-                                        <img src="{{ url_for('static', filename=student.photo_path) }}" 
-                                             alt="Photo" class="rounded-circle" width="40" height="40">
+                                        <img src="{{ url_for('static', filename='student_photos/' + student.photo_path) }}" 
+                                             alt="Photo" class="rounded-circle" width="40" height="40" style="object-fit: cover;">
                                     {% else %}
                                         <div class="bg-secondary rounded-circle d-flex align-items-center justify-content-center" 
                                              style="width: 40px; height: 40px;">

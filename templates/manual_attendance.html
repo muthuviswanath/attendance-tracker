@@ -35,8 +35,8 @@
                                        id="student_{{ student.id }}" name="student_ids">
                                 <label class="form-check-label d-flex align-items-center" for="student_{{ student.id }}">
                                     {% if student.photo_path %}
-                                        <img src="{{ url_for('static', filename=student.photo_path) }}" 
-                                             alt="Photo" class="rounded-circle me-2" width="30" height="30">
+                                        <img src="{{ url_for('static', filename='student_photos/' + student.photo_path) }}" 
+                                             alt="Photo" class="rounded-circle me-2" width="30" height="30" style="object-fit: cover;">
                                     {% else %}
                                         <div class="bg-secondary rounded-circle d-flex align-items-center justify-content-center me-2" 
                                              style="width: 30px; height: 30px;">
